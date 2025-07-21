@@ -4,31 +4,15 @@ pkgver=1.0.0
 pkgrel=1
 pkgdesc="Automatic monitor brightness adjustment based on sunrise/sunset times"
 arch=('any')
-url="https://github.com/DonutsDelivery/auto-brightness"
+url="https://github.com/DonutsDelivery/Auto-Brightness"
 license=('MIT')
 depends=('python' 'python-requests' 'ddcutil')
 makedepends=('git')
-source=("auto_brightness.py"
-        "brightness_control.py"
-        "brightness_gui.py"
-        "brightness_panel.py"
-        "brightness_tray.py"
-        "update_config.py"
-        "plasmoid_helper.sh"
-        "config.json"
-        "auto-brightness.service")
-sha256sums=('SKIP'
-           'SKIP'
-           'SKIP'
-           'SKIP'
-           'SKIP'
-           'SKIP'
-           'SKIP'
-           'SKIP'
-           'SKIP')
+source=("git+https://github.com/DonutsDelivery/Auto-Brightness.git")
+sha256sums=('SKIP')
 
 package() {
-    cd "$srcdir"
+    cd "$srcdir/Auto-Brightness"
     
     # Install Python scripts
     install -Dm755 auto_brightness.py "$pkgdir/usr/bin/auto-brightness"
