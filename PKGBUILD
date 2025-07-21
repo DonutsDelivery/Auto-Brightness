@@ -1,5 +1,5 @@
 # Maintainer: DonutsDelivery <megusta52@proton.me>
-pkgname=auto-brightness
+pkgname=auto-brightness-ddcutil
 pkgver=1.0.0
 pkgrel=1
 pkgdesc="Automatic monitor brightness adjustment based on sunrise/sunset times"

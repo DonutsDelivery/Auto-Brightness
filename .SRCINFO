@@ -1,4 +1,4 @@
-pkgbase = auto-brightness
+pkgbase = auto-brightness-ddcutil
 	pkgdesc = Automatic monitor brightness adjustment based on sunrise/sunset times
 	pkgver = 1.0.0
 	pkgrel = 1
@@ -12,4 +12,4 @@ pkgbase = auto-brightness
 	source = git+https://github.com/DonutsDelivery/Auto-Brightness.git
 	sha256sums = SKIP
 
-pkgname = auto-brightness
+pkgname = auto-brightness-ddcutil
