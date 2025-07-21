@@ -1,0 +1,21 @@
+[Unit]
+Description=Auto Brightness Service
+After=graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/home/user/.pyenv/shims/python3 /home/user/Documents/auto-brightness/auto_brightness.py
+Restart=always
+RestartSec=30
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/user/.Xauthority
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=auto-brightness
+
+WorkingDirectory=/home/user/Documents/auto-brightness
+
+[Install]
+WantedBy=default.target
