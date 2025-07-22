@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from monitor_control_gui import MonitorControlGUI
 
 class BrightnessControlGUI:
     def __init__(self):
@@ -17,8 +18,8 @@ class BrightnessControlGUI:
         # Create main window
         self.root = tk.Tk()
         self.root.title("Auto Brightness Control")
-        self.root.geometry("350x200")
-        self.root.resizable(False, False)
+        self.root.geometry("400x300")
+        self.root.resizable(True, True)
         
         # Try to keep window on top initially
         self.root.attributes('-topmost', True)
@@ -41,7 +42,15 @@ class BrightnessControlGUI:
             print(f"Error saving config: {e}")
     
     def setup_ui(self):
-        main_frame = ttk.Frame(self.root, padding="20")
+        # Create notebook for tabs
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Auto-brightness settings tab
+        auto_frame = ttk.Frame(self.notebook)
+        self.notebook.add(auto_frame, text="Auto Brightness")
+        
+        main_frame = ttk.Frame(auto_frame, padding="20")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         # Title
@@ -87,6 +96,13 @@ class BrightnessControlGUI:
         # Status label
         self.status_label = ttk.Label(main_frame, text="Ready", foreground="green")
         self.status_label.grid(row=4, column=0, columnspan=3, pady=(10, 0))
+        
+        # Monitor control panel tab
+        monitor_frame = ttk.Frame(self.notebook)
+        self.notebook.add(monitor_frame, text="Monitor Control")
+        
+        # Embed the monitor control GUI
+        self.monitor_control_gui = MonitorControlGUI(monitor_frame)
         
     def on_min_change(self, value):
         val = int(float(value))
