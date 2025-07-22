@@ -163,6 +163,7 @@ class PlasmaTheme:
                        foreground=self.colors['window_fg'],
                        font=('Liberation Sans', 9))
         
+        # Configure all frame types to use theme background by default
         style.configure('TFrame',
                        background=self.colors['window_bg'],
                        borderwidth=0)
@@ -179,12 +180,23 @@ class PlasmaTheme:
                        foreground=self.colors['window_fg'],
                        font=('Liberation Sans', 9, 'bold'))
         
-        # Configure all nested frames to use theme background
+        # Configure all nested frame styles to use theme background
         style.configure('Inner.TFrame',
                        background=self.colors['window_bg'])
         
         style.configure('Control.TFrame', 
                        background=self.colors['window_bg'])
+        
+        # Configure checkbutton styles
+        style.configure('TCheckbutton',
+                       background=self.colors['window_bg'],
+                       foreground=self.colors['window_fg'],
+                       focuscolor='none',
+                       font=('Liberation Sans', 9))
+        
+        style.map('TCheckbutton',
+                 background=[('active', self.colors['button_hover']),
+                           ('pressed', self.colors['button_active'])])
         
         # Button styles
         style.configure('TButton',
@@ -275,6 +287,30 @@ class PlasmaTheme:
         
         # Configure ttk styles
         self.configure_ttk_style()
+        
+        # Apply theme to all child widgets recursively
+        self._apply_to_children(window)
+    
+    def _apply_to_children(self, parent):
+        """Recursively apply theme to all child widgets"""
+        try:
+            for child in parent.winfo_children():
+                # Apply theme background to tkinter widgets
+                if hasattr(child, 'configure'):
+                    widget_class = child.winfo_class()
+                    if widget_class in ['Frame', 'Toplevel']:
+                        child.configure(bg=self.colors['window_bg'])
+                    elif widget_class in ['Label']:
+                        child.configure(bg=self.colors['window_bg'], fg=self.colors['window_fg'])
+                    elif widget_class in ['Checkbutton', 'Radiobutton']:
+                        child.configure(bg=self.colors['window_bg'], fg=self.colors['window_fg'],
+                                      selectcolor=self.colors['selection_bg'])
+                
+                # Recursively apply to children
+                self._apply_to_children(child)
+        except tk.TclError:
+            # Widget may have been destroyed
+            pass
     
     def get_status_colors(self):
         """Get colors for status indicators"""

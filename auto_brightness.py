@@ -31,7 +31,8 @@ class AutoBrightnessService:
             "max_brightness": 1.0,
             "update_interval": 300,
             "displays": [],
-            "transition_duration": 30
+            "transition_duration": 30,
+            "auto_brightness_enabled": True
         }
         
         try:
@@ -135,6 +136,29 @@ class AutoBrightnessService:
     def run(self):
         logging.info("Starting Auto Brightness Service")
         
+        # Check if auto brightness is enabled
+        if not self.config.get("auto_brightness_enabled", True):
+            logging.info("Auto brightness is disabled. Service will not adjust brightness automatically.")
+            logging.info("Monitoring configuration changes...")
+            
+            # Monitor config changes while disabled
+            while True:
+                try:
+                    # Reload config to check if enabled
+                    self.config = self.load_config()
+                    if self.config.get("auto_brightness_enabled", True):
+                        logging.info("Auto brightness re-enabled. Starting brightness control.")
+                        break
+                    
+                    time.sleep(30)  # Check every 30 seconds
+                    
+                except KeyboardInterrupt:
+                    logging.info("Service stopped by user")
+                    return
+                except Exception as e:
+                    logging.error(f"Unexpected error: {e}")
+                    time.sleep(60)
+        
         lat, lon = self.get_location()
         if not lat or not lon:
             logging.error("Could not determine location. Please set latitude and longitude in config.")
@@ -151,6 +175,21 @@ class AutoBrightnessService:
         
         while True:
             try:
+                # Reload config each iteration to check for changes
+                self.config = self.load_config()
+                
+                # Check if auto brightness was disabled
+                if not self.config.get("auto_brightness_enabled", True):
+                    logging.info("Auto brightness disabled. Pausing automatic adjustments.")
+                    time.sleep(30)
+                    continue
+                
+                # Update location if it changed
+                new_lat, new_lon = self.get_location()
+                if new_lat != lat or new_lon != lon:
+                    lat, lon = new_lat, new_lon
+                    logging.info(f"Location updated: {lat:.2f}, {lon:.2f}")
+                
                 sunrise, sunset = self.get_sun_times(lat, lon)
                 if sunrise and sunset:
                     brightness = self.calculate_brightness(sunrise, sunset)
