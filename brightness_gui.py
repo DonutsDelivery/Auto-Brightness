@@ -9,6 +9,7 @@ import threading
 import time
 from pathlib import Path
 from monitor_control_gui import MonitorControlGUI
+from plasma_theme import plasma_theme
 
 class BrightnessControlGUI:
     def __init__(self):
@@ -17,9 +18,12 @@ class BrightnessControlGUI:
         
         # Create main window
         self.root = tk.Tk()
-        self.root.title("Auto Brightness Control")
-        self.root.geometry("400x300")
+        self.root.title("Auto Brightness & Monitor Control")
+        self.root.geometry("900x650")
         self.root.resizable(True, True)
+        
+        # Apply Plasma theme
+        plasma_theme.apply_to_window(self.root)
         
         # Try to keep window on top initially
         self.root.attributes('-topmost', True)
@@ -94,8 +98,13 @@ class BrightnessControlGUI:
                   command=self.root.destroy).pack(side=tk.LEFT)
         
         # Status label
-        self.status_label = ttk.Label(main_frame, text="Ready", foreground="green")
+        status_colors = plasma_theme.get_status_colors()
+        self.status_label = ttk.Label(main_frame, text="Ready")
         self.status_label.grid(row=4, column=0, columnspan=3, pady=(10, 0))
+        # Apply success color
+        style = ttk.Style()
+        style.configure('Success.TLabel', foreground=status_colors['success'])
+        self.status_label.configure(style='Success.TLabel')
         
         # Monitor control panel tab
         monitor_frame = ttk.Frame(self.notebook)
@@ -121,7 +130,13 @@ class BrightnessControlGUI:
             self.min_label.config(text=f"{int(self.min_var.get())}%")
     
     def apply_settings(self):
-        self.status_label.config(text="Applying settings...", foreground="orange")
+        # Use theme colors for status
+        status_colors = plasma_theme.get_status_colors()
+        style = ttk.Style()
+        style.configure('Warning.TLabel', foreground=status_colors['warning'])
+        
+        self.status_label.config(text="Applying settings...")
+        self.status_label.configure(style='Warning.TLabel')
         self.root.update()
         
         # Update config
@@ -134,7 +149,13 @@ class BrightnessControlGUI:
         threading.Thread(target=self._restart_service_thread, daemon=True).start()
     
     def restart_service(self):
-        self.status_label.config(text="Restarting service...", foreground="orange")
+        # Use theme colors for status
+        status_colors = plasma_theme.get_status_colors()
+        style = ttk.Style()
+        style.configure('Warning.TLabel', foreground=status_colors['warning'])
+        
+        self.status_label.config(text="Restarting service...")
+        self.status_label.configure(style='Warning.TLabel')
         self.root.update()
         threading.Thread(target=self._restart_service_thread, daemon=True).start()
     
@@ -143,17 +164,31 @@ class BrightnessControlGUI:
             subprocess.run(['systemctl', '--user', 'restart', 'auto-brightness.service'], 
                          check=True, capture_output=True)
             
-            # Update status on main thread
-            self.root.after(0, lambda: self.status_label.config(
-                text="Settings applied successfully!", foreground="green"))
+            # Update status on main thread with theme colors
+            status_colors = plasma_theme.get_status_colors()
+            style = ttk.Style()
+            style.configure('Success.TLabel', foreground=status_colors['success'])
+            
+            self.root.after(0, lambda: [
+                self.status_label.config(text="Settings applied successfully!"),
+                self.status_label.configure(style='Success.TLabel')
+            ])
             
             # Clear status after 3 seconds
-            self.root.after(3000, lambda: self.status_label.config(
-                text="Ready", foreground="green"))
+            self.root.after(3000, lambda: [
+                self.status_label.config(text="Ready"),
+                self.status_label.configure(style='Success.TLabel')
+            ])
                 
         except subprocess.CalledProcessError as e:
-            self.root.after(0, lambda: self.status_label.config(
-                text="Error restarting service", foreground="red"))
+            status_colors = plasma_theme.get_status_colors()
+            style = ttk.Style()
+            style.configure('Error.TLabel', foreground=status_colors['error'])
+            
+            self.root.after(0, lambda: [
+                self.status_label.config(text="Error restarting service"),
+                self.status_label.configure(style='Error.TLabel')
+            ])
     
     def run(self):
         self.root.mainloop()

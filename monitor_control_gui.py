@@ -6,6 +6,7 @@ import json
 import threading
 import time
 from monitor_control import DDCIMonitorControl
+from plasma_theme import plasma_theme
 
 class MonitorControlGUI:
     """Comprehensive Monitor Control Panel GUI"""
@@ -29,15 +30,17 @@ class MonitorControlGUI:
         """Setup the monitor control panel interface"""
         if self.standalone:
             self.root.title("Monitor Control Panel")
-            self.root.geometry("800x600")
+            self.root.geometry("900x650")
             self.root.resizable(True, True)
+            # Apply Plasma theme for standalone mode
+            plasma_theme.apply_to_window(self.root)
         
         # Create main container
         main_frame = ttk.Frame(self.root)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         # Header
-        header_frame = ttk.Frame(main_frame)
+        header_frame = ttk.Frame(main_frame, style='Inner.TFrame')
         header_frame.pack(fill=tk.X, pady=(0, 10))
         
         ttk.Label(header_frame, text="Monitor Control Panel", 
@@ -85,11 +88,17 @@ class MonitorControlGUI:
         self.notebook.add(self.config_frame, text="Profiles")
         self.setup_config_controls()
         
-        # Status bar
+        # Status bar with theme colors
         self.status_var = tk.StringVar(value="Ready")
         status_bar = ttk.Label(main_frame, textvariable=self.status_var, 
                               relief=tk.SUNKEN, anchor=tk.W)
         status_bar.pack(fill=tk.X, pady=(10, 0))
+        
+        # Configure status colors
+        status_colors = plasma_theme.get_status_colors()
+        style = ttk.Style()
+        style.configure('Status.TLabel', foreground=status_colors['info'])
+        status_bar.configure(style='Status.TLabel')
     
     def setup_basic_controls(self):
         """Setup basic brightness/contrast controls"""
@@ -131,7 +140,7 @@ class MonitorControlGUI:
         input_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         # Current input display
-        current_frame = ttk.Frame(input_frame)
+        current_frame = ttk.Frame(input_frame, style='Inner.TFrame')
         current_frame.pack(fill=tk.X, pady=(0, 10))
         
         ttk.Label(current_frame, text="Current Input:").pack(side=tk.LEFT)
@@ -143,7 +152,7 @@ class MonitorControlGUI:
                   command=self.get_current_input).pack(side=tk.RIGHT)
         
         # Input selection buttons
-        self.input_buttons_frame = ttk.Frame(input_frame)
+        self.input_buttons_frame = ttk.Frame(input_frame, style='Inner.TFrame')
         self.input_buttons_frame.pack(fill=tk.BOTH, expand=True)
         
         # Will be populated when monitor is selected
@@ -154,7 +163,7 @@ class MonitorControlGUI:
         preset_frame = ttk.LabelFrame(self.color_frame, text="Color Presets", padding=10)
         preset_frame.pack(fill=tk.X, padx=10, pady=10)
         
-        current_preset_frame = ttk.Frame(preset_frame)
+        current_preset_frame = ttk.Frame(preset_frame, style='Inner.TFrame')
         current_preset_frame.pack(fill=tk.X, pady=(0, 10))
         
         ttk.Label(current_preset_frame, text="Current Preset:").pack(side=tk.LEFT)
@@ -165,7 +174,7 @@ class MonitorControlGUI:
         ttk.Button(current_preset_frame, text="Refresh", 
                   command=self.get_current_preset).pack(side=tk.RIGHT)
         
-        self.preset_buttons_frame = ttk.Frame(preset_frame)
+        self.preset_buttons_frame = ttk.Frame(preset_frame, style='Inner.TFrame')
         self.preset_buttons_frame.pack(fill=tk.BOTH, expand=True)
         
         # RGB Controls (if supported)
@@ -173,7 +182,7 @@ class MonitorControlGUI:
         rgb_frame.pack(fill=tk.X, padx=10, pady=10)
         
         # Red
-        red_frame = ttk.Frame(rgb_frame)
+        red_frame = ttk.Frame(rgb_frame, style='Inner.TFrame')
         red_frame.pack(fill=tk.X, pady=2)
         ttk.Label(red_frame, text="Red:", width=10).pack(side=tk.LEFT)
         self.red_var = tk.IntVar()
@@ -182,7 +191,7 @@ class MonitorControlGUI:
         ttk.Label(red_frame, textvariable=self.red_var).pack(side=tk.LEFT)
         
         # Green  
-        green_frame = ttk.Frame(rgb_frame)
+        green_frame = ttk.Frame(rgb_frame, style='Inner.TFrame')
         green_frame.pack(fill=tk.X, pady=2)
         ttk.Label(green_frame, text="Green:", width=10).pack(side=tk.LEFT)
         self.green_var = tk.IntVar()
@@ -191,7 +200,7 @@ class MonitorControlGUI:
         ttk.Label(green_frame, textvariable=self.green_var).pack(side=tk.LEFT)
         
         # Blue
-        blue_frame = ttk.Frame(rgb_frame)
+        blue_frame = ttk.Frame(rgb_frame, style='Inner.TFrame')
         blue_frame.pack(fill=tk.X, pady=2)
         ttk.Label(blue_frame, text="Blue:", width=10).pack(side=tk.LEFT)
         self.blue_var = tk.IntVar()
@@ -208,7 +217,7 @@ class MonitorControlGUI:
         power_frame = ttk.LabelFrame(self.advanced_frame, text="Power Management", padding=10)
         power_frame.pack(fill=tk.X, padx=10, pady=10)
         
-        power_buttons_frame = ttk.Frame(power_frame)
+        power_buttons_frame = ttk.Frame(power_frame, style='Inner.TFrame')
         power_buttons_frame.pack()
         
         ttk.Button(power_buttons_frame, text="Turn On", 
@@ -237,7 +246,7 @@ class MonitorControlGUI:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
         # Feature control
-        control_frame = ttk.Frame(features_frame)
+        control_frame = ttk.Frame(features_frame, style='Inner.TFrame')
         control_frame.pack(fill=tk.X, pady=(10, 0))
         
         ttk.Label(control_frame, text="Set Value:").pack(side=tk.LEFT)
@@ -252,7 +261,7 @@ class MonitorControlGUI:
         config_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         # Current config display
-        current_config_frame = ttk.Frame(config_frame)
+        current_config_frame = ttk.Frame(config_frame, style='Inner.TFrame')
         current_config_frame.pack(fill=tk.X, pady=(0, 10))
         
         ttk.Button(current_config_frame, text="Export Current Settings", 
@@ -264,7 +273,7 @@ class MonitorControlGUI:
         preset_frame = ttk.LabelFrame(config_frame, text="Quick Presets", padding=10)
         preset_frame.pack(fill=tk.X, pady=(10, 0))
         
-        preset_buttons_frame = ttk.Frame(preset_frame)
+        preset_buttons_frame = ttk.Frame(preset_frame, style='Inner.TFrame')
         preset_buttons_frame.pack()
         
         ttk.Button(preset_buttons_frame, text="Gaming Mode", 
@@ -276,7 +285,7 @@ class MonitorControlGUI:
     
     def refresh_monitors(self):
         """Refresh the list of available monitors"""
-        self.update_status("Detecting monitors...")
+        self.update_status("Detecting monitors...", 'warning')
         
         def detect_thread():
             self.monitors = self.monitor_control.detect_monitors()
@@ -296,7 +305,10 @@ class MonitorControlGUI:
             self.monitor_combo.current(0)
             self.on_monitor_selected(None)
         
-        self.update_status(f"Found {len(monitor_list)} monitor(s)")
+        if monitor_list:
+            self.update_status(f"Found {len(monitor_list)} monitor(s)", 'success')
+        else:
+            self.update_status("No monitors detected", 'error')
     
     def on_monitor_selected(self, event):
         """Handle monitor selection change"""
@@ -310,7 +322,7 @@ class MonitorControlGUI:
         
         if self.current_monitor:
             self.update_controls_for_monitor()
-            self.update_status(f"Selected: {self.current_monitor['model']}")
+            self.update_status(f"Selected: {self.current_monitor['model']}", 'info')
     
     def update_controls_for_monitor(self):
         """Update all controls based on the selected monitor"""
@@ -580,9 +592,23 @@ class MonitorControlGUI:
         self.update_status(f"Applied {preset_name} preset")
         self.update_controls_for_monitor()
     
-    def update_status(self, message):
-        """Update the status bar"""
+    def update_status(self, message, status_type='info'):
+        """Update the status bar with themed colors"""
         self.status_var.set(message)
+        
+        # Apply appropriate color based on status type
+        status_colors = plasma_theme.get_status_colors()
+        style = ttk.Style()
+        
+        if status_type == 'success':
+            style.configure('Status.TLabel', foreground=status_colors['success'])
+        elif status_type == 'warning':
+            style.configure('Status.TLabel', foreground=status_colors['warning'])
+        elif status_type == 'error':
+            style.configure('Status.TLabel', foreground=status_colors['error'])
+        else:  # info
+            style.configure('Status.TLabel', foreground=status_colors['info'])
+        
         self.root.update_idletasks()
     
     def run(self):
