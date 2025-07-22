@@ -5,17 +5,16 @@ Wants=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/home/user/.pyenv/shims/python3 /home/user/Documents/auto-brightness/auto_brightness.py
+ExecStart=/usr/bin/auto-brightness
 Restart=always
 RestartSec=30
 Environment=DISPLAY=:0
-Environment=XAUTHORITY=/home/user/.Xauthority
 
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=auto-brightness
 
-WorkingDirectory=/home/user/Documents/auto-brightness
+WorkingDirectory=/etc/auto-brightness
 
 [Install]
 WantedBy=default.target

@@ -11,7 +11,14 @@ import sys
 import os
 
 class AutoBrightnessService:
-    def __init__(self, config_path="/home/user/Documents/auto-brightness/config.json"):
+    def __init__(self, config_path=None):
+        if config_path is None:
+            # Try local config first, then system config
+            local_config = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+            if os.path.exists(local_config):
+                config_path = local_config
+            else:
+                config_path = "/etc/auto-brightness/config.json"
         self.config_path = config_path
         self.config = self.load_config()
         self.setup_logging()
