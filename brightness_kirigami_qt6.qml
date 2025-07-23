@@ -26,6 +26,16 @@ Kirigami.ApplicationWindow {
         }
     }
     
+    // Window focus handling to refresh content when window regains focus
+    onActiveChanged: {
+        if (active && controller) {
+            // Window became active, refresh to prevent blank content
+            Qt.callLater(function() {
+                controller.refresh_monitors()
+            })
+        }
+    }
+    
     pageStack.initialPage: Kirigami.Page {
         title: "Monitor Remote Control"
         padding: 0
@@ -61,6 +71,13 @@ Kirigami.ApplicationWindow {
                                 color: parent.checked ? "#5e81ac" : "transparent"
                                 radius: 6
                             }
+                            contentItem: Text {
+                                text: parent.text
+                                color: "#eceff4"
+                                font.bold: parent.checked
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
                         }
                         TabButton {
                             text: "Monitor Control"
@@ -68,6 +85,13 @@ Kirigami.ApplicationWindow {
                             background: Rectangle {
                                 color: parent.checked ? "#5e81ac" : "transparent"
                                 radius: 6
+                            }
+                            contentItem: Text {
+                                text: parent.text
+                                color: "#eceff4"
+                                font.bold: parent.checked
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
                             }
                         }
                     }
@@ -164,7 +188,7 @@ Kirigami.ApplicationWindow {
                                                     Label {
                                                         anchors.centerIn: parent
                                                         text: "NIGHT"
-                                                        color: "#2e3440"
+                                                        color: "#eceff4"
                                                         font.bold: true
                                                         font.pointSize: 8
                                                     }
@@ -233,7 +257,7 @@ Kirigami.ApplicationWindow {
                                                     Label {
                                                         anchors.centerIn: parent
                                                         text: "DAY"
-                                                        color: "#2e3440"
+                                                        color: "#eceff4"
                                                         font.bold: true
                                                         font.pointSize: 8
                                                     }
@@ -300,7 +324,7 @@ Kirigami.ApplicationWindow {
                                             Label {
                                                 anchors.centerIn: parent
                                                 text: "SERVICE"
-                                                color: "#2e3440"
+                                                color: "#eceff4"
                                                 font.bold: true
                                                 font.pointSize: 9
                                             }
@@ -407,7 +431,7 @@ Kirigami.ApplicationWindow {
                                                 Label {
                                                     anchors.centerIn: parent
                                                     text: "SEARCH"
-                                                    color: "#2e3440"
+                                                    color: "#eceff4"
                                                     font.bold: true
                                                     font.pointSize: 8
                                                 }
@@ -654,12 +678,26 @@ Kirigami.ApplicationWindow {
                                                 color: parent.checked ? "#5e81ac" : "transparent"
                                                 radius: 4
                                             }
+                                            contentItem: Text {
+                                                text: parent.text
+                                                color: "#eceff4"
+                                                font.bold: parent.checked
+                                                horizontalAlignment: Text.AlignHCenter
+                                                verticalAlignment: Text.AlignVCenter
+                                            }
                                         }
                                         TabButton {
                                             text: "Color"
                                             background: Rectangle {
                                                 color: parent.checked ? "#5e81ac" : "transparent"
                                                 radius: 4
+                                            }
+                                            contentItem: Text {
+                                                text: parent.text
+                                                color: "#eceff4"
+                                                font.bold: parent.checked
+                                                horizontalAlignment: Text.AlignHCenter
+                                                verticalAlignment: Text.AlignVCenter
                                             }
                                         }
                                         TabButton {
@@ -668,12 +706,26 @@ Kirigami.ApplicationWindow {
                                                 color: parent.checked ? "#5e81ac" : "transparent"
                                                 radius: 4
                                             }
+                                            contentItem: Text {
+                                                text: parent.text
+                                                color: "#eceff4"
+                                                font.bold: parent.checked
+                                                horizontalAlignment: Text.AlignHCenter
+                                                verticalAlignment: Text.AlignVCenter
+                                            }
                                         }
                                         TabButton {
                                             text: "Advanced"
                                             background: Rectangle {
                                                 color: parent.checked ? "#5e81ac" : "transparent"
                                                 radius: 4
+                                            }
+                                            contentItem: Text {
+                                                text: parent.text
+                                                color: "#eceff4"
+                                                font.bold: parent.checked
+                                                horizontalAlignment: Text.AlignHCenter
+                                                verticalAlignment: Text.AlignVCenter
                                             }
                                         }
                                     }

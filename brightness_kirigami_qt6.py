@@ -608,12 +608,12 @@ class BrightnessController(QObject):
 def main():
     print(f"Using Qt{QT_VERSION} for Kirigami interface with GPU acceleration")
     
-    # Enable GPU optimizations instead of disabling them
+    # Enable basic GPU optimizations without forcing specific backends
     os.environ['__GL_SHADER_DISK_CACHE'] = '1'  # Enable shader cache for GPU acceleration
     os.environ['__GL_THREADED_OPTIMIZATIONS'] = '1'  # Enable threaded optimizations
-    # Additional GPU acceleration settings
-    os.environ['__GL_SYNC_TO_VBLANK'] = '1'  # Enable VSync for smooth rendering
-    os.environ['__GL_ALLOW_UNOFFICIAL_PROTOCOL'] = '1'  # Allow GPU optimizations
+    
+    # Prevent blank window issues  
+    os.environ['QSG_INFO'] = '0'  # Reduce Qt scene graph debug output
     
     app = QApplication(sys.argv)
     app.setApplicationName("Monitor Remote Control")
@@ -739,6 +739,12 @@ def main():
     if not engine.rootObjects():
         print("Failed to load QML file")
         return 1
+    
+    # Get the main window for basic setup
+    root_objects = engine.rootObjects()
+    if root_objects:
+        main_window = root_objects[0]
+        print("Main window initialized successfully")
     
     print("Kirigami interface loaded successfully!")
     return app.exec()
