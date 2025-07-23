@@ -1,0 +1,20 @@
+[Unit]
+Description=Monitor Remote Control - Auto Brightness Service
+After=graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/auto-brightness
+Restart=always
+RestartSec=30
+Environment=DISPLAY=:0
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=monitor-remote-control
+
+WorkingDirectory=/etc/monitor-remote-control
+
+[Install]
+WantedBy=default.target
