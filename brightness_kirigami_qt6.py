@@ -313,7 +313,7 @@ class BrightnessController(QObject):
         def restart_thread():
             try:
                 import subprocess
-                subprocess.run(['systemctl', '--user', 'restart', 'monitor-remote-control.service'], 
+                subprocess.run(['systemctl', '--user', 'restart', 'auto-brightness.service'], 
                              check=True, capture_output=True)
                 self.statusChanged.emit("Service restarted successfully!", "success")
             except subprocess.CalledProcessError as e:
@@ -612,8 +612,11 @@ def main():
     os.environ['__GL_SHADER_DISK_CACHE'] = '1'  # Enable shader cache for GPU acceleration
     os.environ['__GL_THREADED_OPTIMIZATIONS'] = '1'  # Enable threaded optimizations
     
-    # Prevent blank window issues  
+    # Prevent rendering issues and ensure proper initialization
     os.environ['QSG_INFO'] = '0'  # Reduce Qt scene graph debug output
+    os.environ['QT_QPA_PLATFORM'] = 'xcb'  # Force X11 backend for stability
+    os.environ['QT_QUICK_BACKEND'] = 'software'  # Use software rendering for reliability
+    os.environ['QSG_RENDER_LOOP'] = 'basic'  # Use basic render loop to prevent transparency issues
     
     app = QApplication(sys.argv)
     app.setApplicationName("Monitor Remote Control")
@@ -740,13 +743,34 @@ def main():
         print("Failed to load QML file")
         return 1
     
-    # Get the main window for basic setup
+    # Get the main window and ensure proper initialization
     root_objects = engine.rootObjects()
     if root_objects:
         main_window = root_objects[0]
         print("Main window initialized successfully")
+        
+        # Force window to be visible and render properly
+        if hasattr(main_window, 'show'):
+            main_window.show()
+        if hasattr(main_window, 'raise_'):
+            main_window.raise_()
+        if hasattr(main_window, 'activateWindow'):
+            main_window.activateWindow()
+            
+        # Force immediate refresh to prevent blank/transparent state
+        if hasattr(main_window, 'update'):
+            main_window.update()
+        
+        # Ensure window is properly sized and positioned
+        if hasattr(main_window, 'setWidth') and hasattr(main_window, 'setHeight'):
+            main_window.setWidth(1000)
+            main_window.setHeight(700)
     
     print("Kirigami interface loaded successfully!")
+    
+    # Process events to ensure proper rendering before starting main loop
+    app.processEvents()
+    
     return app.exec()
 
 if __name__ == "__main__":

@@ -84,28 +84,76 @@ class AutoBrightnessService:
         
         return None, None
     
+    def calculate_solar_elevation(self, lat, lon, dt):
+        """Calculate solar elevation angle in degrees"""
+        # Convert to Julian day
+        a = (14 - dt.month) // 12
+        y = dt.year - a
+        m = dt.month + 12 * a - 3
+        jdn = dt.day + (153 * m + 2) // 5 + 365 * y + y // 4 - y // 100 + y // 400 - 32045
+        jd = jdn + (dt.hour - 12) / 24.0 + dt.minute / 1440.0 + dt.second / 86400.0
+        
+        # Solar calculations
+        n = jd - 2451545.0
+        L = (280.460 + 0.9856474 * n) % 360
+        g = math.radians((357.528 + 0.9856003 * n) % 360)
+        lamba = math.radians(L + 1.915 * math.sin(g) + 0.020 * math.sin(2 * g))
+        
+        # Solar declination
+        declination = math.asin(0.39795 * math.cos(lamba))
+        
+        # Hour angle
+        time_correction = 4 * (lon - 15 * dt.hour) + 229.18 * (0.000075 + 0.001868 * math.cos(math.radians(n)) 
+                         - 0.032077 * math.sin(math.radians(n)) - 0.014615 * math.cos(2 * math.radians(n)) 
+                         - 0.040849 * math.sin(2 * math.radians(n)))
+        true_solar_time = dt.minute + dt.second / 60.0 + time_correction / 60.0
+        hour_angle = math.radians(15 * (true_solar_time / 60.0 - 12))
+        
+        # Solar elevation
+        lat_rad = math.radians(lat)
+        elevation = math.asin(math.sin(declination) * math.sin(lat_rad) + 
+                            math.cos(declination) * math.cos(lat_rad) * math.cos(hour_angle))
+        
+        return math.degrees(elevation)
+
     def calculate_brightness(self, sunrise, sunset):
         now = datetime.now(timezone.utc)
+        lat = self.config["latitude"]
+        lon = self.config["longitude"]
         
-        # Full daylight
-        if sunrise <= now <= sunset:
-            return self.config["max_brightness"]
+        # Calculate solar elevation angle
+        elevation = self.calculate_solar_elevation(lat, lon, now)
         
-        # Calculate twilight periods (1 hour after sunset / before sunrise)
-        twilight_duration = 3600  # 1 hour in seconds
+        # Convert elevation to brightness using a smooth curve
+        # Solar elevation ranges from -90° (night) to 90° (noon)
+        # We'll use a curve that:
+        # - Minimum brightness below -6° (civil twilight)
+        # - Smooth transition from -6° to 0° (horizon)
+        # - Peak brightness around 30-60° elevation
         
-        # Evening twilight (just after sunset)
-        evening_twilight_end = sunset + timedelta(seconds=twilight_duration)
-        if sunset < now <= evening_twilight_end:
-            return 0.5  # 50% during dusk
+        min_brightness = self.config["min_brightness"]
+        max_brightness = self.config["max_brightness"]
         
-        # Morning twilight (just before sunrise)  
-        morning_twilight_start = sunrise - timedelta(seconds=twilight_duration)
-        if morning_twilight_start <= now < sunrise:
-            return 0.5  # 50% during dawn
-        
-        # Deep night - minimum brightness
-        return self.config["min_brightness"]
+        if elevation <= -6:
+            # Deep night (civil twilight and below)
+            return min_brightness
+        elif elevation <= 0:
+            # Civil twilight to horizon - smooth transition
+            twilight_factor = (elevation + 6) / 6.0
+            return min_brightness + (0.3 * (max_brightness - min_brightness) * twilight_factor)
+        elif elevation <= 15:
+            # Early morning/evening - gradual increase
+            factor = elevation / 15.0
+            return min_brightness + (0.6 * (max_brightness - min_brightness) * factor)
+        elif elevation <= 30:
+            # Good daylight - steeper increase
+            factor = 0.6 + 0.3 * (elevation - 15) / 15.0
+            return min_brightness + (factor * (max_brightness - min_brightness))
+        else:
+            # Peak daylight (elevation > 30°)
+            # Use a slight curve to max out around 45-60°
+            peak_factor = min(1.0, 0.9 + 0.1 * min(1.0, (elevation - 30) / 30.0))
+            return min_brightness + (peak_factor * (max_brightness - min_brightness))
     
     def get_displays(self):
         if self.config["displays"]:
@@ -124,6 +172,38 @@ class AutoBrightnessService:
             logging.error(f"Failed to get displays via ddcutil: {e}")
             return []
     
+    def ensure_proper_contrast(self, display):
+        """Ensure the monitor has adequate contrast for brightness changes to be visible"""
+        try:
+            # Check current contrast
+            result = subprocess.run(['ddcutil', '--bus', display, 'getvcp', '12'], 
+                                  capture_output=True, text=True, check=True, timeout=5)
+            
+            # Parse contrast value
+            current_contrast = None
+            for line in result.stdout.split('\n'):
+                if 'current value' in line.lower():
+                    import re
+                    value_match = re.search(r'current value\s*=\s*(\d+)', line)
+                    if value_match:
+                        current_contrast = int(value_match.group(1))
+                        break
+            
+            if current_contrast is not None:
+                # If contrast is too low (less than 50%), set it to 75% for optimal visibility
+                if current_contrast < 50:
+                    subprocess.run(['ddcutil', '--bus', display, 'setvcp', '12', '75'], 
+                                 check=True, capture_output=True, timeout=5)
+                    logging.info(f"Adjusted display {display} contrast from {current_contrast}% to 75% for better visibility")
+                else:
+                    logging.debug(f"Display {display} contrast is adequate at {current_contrast}%")
+            
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            # Some monitors don't support contrast control, that's okay
+            logging.debug(f"Could not check/adjust contrast for display {display}: {e}")
+        except Exception as e:
+            logging.warning(f"Unexpected error checking contrast for display {display}: {e}")
+
     def set_brightness(self, display, brightness):
         try:
             brightness_percent = int(brightness * 100)
@@ -173,6 +253,14 @@ class AutoBrightnessService:
         
         logging.info(f"Found displays: {displays}")
         
+        # Ensure proper contrast on all displays at startup
+        logging.info("Checking and adjusting contrast levels for optimal brightness visibility...")
+        for display in displays:
+            self.ensure_proper_contrast(display)
+        
+        # Track iterations to periodically re-check contrast
+        iteration_count = 0
+        
         while True:
             try:
                 # Reload config each iteration to check for changes
@@ -200,6 +288,13 @@ class AutoBrightnessService:
                     logging.info(f"Updated brightness to {brightness:.2f}")
                 else:
                     logging.warning("Could not get sun times, skipping update")
+                
+                # Periodically re-check contrast levels (every 10 iterations ~ every hour at 5min intervals)
+                iteration_count += 1
+                if iteration_count % 10 == 0:
+                    logging.debug("Periodic contrast check...")
+                    for display in displays:
+                        self.ensure_proper_contrast(display)
                 
                 time.sleep(self.config["update_interval"])
                 

@@ -168,6 +168,15 @@ class PlasmaTheme:
                        background=self.colors['window_bg'],
                        borderwidth=0)
         
+        # Specifically configure inner frame styles to prevent grey appearance
+        style.configure('Inner.TFrame',
+                       background=self.colors['window_bg'],
+                       borderwidth=0)
+        
+        style.configure('Container.TFrame',
+                       background=self.colors['window_bg'],
+                       borderwidth=0)
+        
         style.configure('TLabelFrame',
                        background=self.colors['window_bg'],
                        foreground=self.colors['window_fg'],

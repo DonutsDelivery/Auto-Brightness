@@ -41,18 +41,26 @@ def try_kirigami_launch():
         return False
 
 def fallback_tkinter_launch():
-    """Fallback to the tkinter interface"""
+    """Fallback to the enhanced tkinter interface"""
     try:
-        print("Falling back to tkinter interface...")
-        tkinter_script = os.path.join(os.path.dirname(__file__), 'brightness_control_launcher.py')
-        if os.path.exists(tkinter_script):
-            subprocess.run([sys.executable, tkinter_script], check=True)
+        print("Falling back to ENHANCED tkinter interface...")
+        
+        # Launch the enhanced interface directly
+        enhanced_script = os.path.join(os.path.dirname(__file__), 'brightness_control_launcher.py')
+        if os.path.exists(enhanced_script):
+            print(f"Launching enhanced interface: {enhanced_script}")
+            subprocess.run([sys.executable, enhanced_script], check=True)
             return True
         else:
-            print("Tkinter launcher not found")
-            return False
-    except (subprocess.CalledProcessError, FileNotFoundError) as e:
-        print(f"Tkinter launch failed: {e}")
+            print("Enhanced launcher not found, trying direct import...")
+            # Direct import fallback
+            import brightness_gui
+            print("Loading BrightnessControlGUI directly...")
+            app = brightness_gui.BrightnessControlGUI()
+            app.run()
+            return True
+    except (subprocess.CalledProcessError, FileNotFoundError, ImportError) as e:
+        print(f"Enhanced interface launch failed: {e}")
         return False
 
 def main():

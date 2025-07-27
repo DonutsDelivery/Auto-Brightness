@@ -18,7 +18,7 @@ class BrightnessControlGUI:
         
         # Create main window
         self.root = tk.Tk()
-        self.root.title("Auto Brightness & Monitor Control")
+        self.root.title("Auto Brightness & Monitor Control v2.0 (Enhanced)")
         self.root.geometry("900x650")
         self.root.resizable(True, True)
         

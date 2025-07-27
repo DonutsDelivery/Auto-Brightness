@@ -6,7 +6,7 @@ import BrightnessControl 1.0
 
 Kirigami.ApplicationWindow {
     id: root
-    title: "Auto Brightness & Monitor Control"
+    title: "Monitor Remote Control"
     width: 900
     height: 700
     minimumWidth: 800
@@ -14,6 +14,36 @@ Kirigami.ApplicationWindow {
     maximumWidth: 1200
     maximumHeight: 900
     color: "#2e3440"
+    
+    // Ensure window is visible and properly rendered
+    visible: true
+    opacity: 1.0
+    
+    // Force immediate render on startup with delay for proper initialization
+    Timer {
+        id: startupTimer
+        interval: 100  // 100ms delay for proper initialization
+        running: true
+        repeat: false
+        onTriggered: {
+            // Ensure controller is initialized
+            if (controller) {
+                controller.refresh_monitors()
+            }
+            
+            // Force window to front and ensure visibility
+            requestActivate()
+            if (typeof(show) === "function") {
+                show()
+            }
+        }
+    }
+    
+    Component.onCompleted: {
+        // Immediate visibility setup
+        visible = true
+        opacity = 1.0
+    }
     
     BrightnessController {
         id: controller

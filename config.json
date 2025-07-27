@@ -1,9 +1,10 @@
 {
-  "latitude": null,
-  "longitude": null,
-  "min_brightness": 0.4331325301204819,
+  "latitude": 56.4607,
+  "longitude": 10.03639,
+  "min_brightness": 0.4022727272727273,
   "max_brightness": 1.0,
   "update_interval": 300,
   "displays": [],
-  "transition_duration": 30
+  "transition_duration": 30,
+  "auto_brightness_enabled": true
 }
