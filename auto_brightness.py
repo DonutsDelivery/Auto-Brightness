@@ -86,33 +86,48 @@ class AutoBrightnessService:
     
     def calculate_solar_elevation(self, lat, lon, dt):
         """Calculate solar elevation angle in degrees"""
-        # Convert to Julian day
+        # Get Julian day number
         a = (14 - dt.month) // 12
         y = dt.year - a
         m = dt.month + 12 * a - 3
         jdn = dt.day + (153 * m + 2) // 5 + 365 * y + y // 4 - y // 100 + y // 400 - 32045
-        jd = jdn + (dt.hour - 12) / 24.0 + dt.minute / 1440.0 + dt.second / 86400.0
         
-        # Solar calculations
+        # Convert UTC time to fractional day
+        hour_decimal = dt.hour + dt.minute / 60.0 + dt.second / 3600.0
+        jd = jdn + (hour_decimal - 12) / 24.0
+        
+        # Days since J2000.0
         n = jd - 2451545.0
+        
+        # Mean longitude of Sun
         L = (280.460 + 0.9856474 * n) % 360
+        
+        # Mean anomaly
         g = math.radians((357.528 + 0.9856003 * n) % 360)
-        lamba = math.radians(L + 1.915 * math.sin(g) + 0.020 * math.sin(2 * g))
+        
+        # Ecliptic longitude
+        lambda_sun = math.radians(L + 1.915 * math.sin(g) + 0.020 * math.sin(2 * g))
         
         # Solar declination
-        declination = math.asin(0.39795 * math.cos(lamba))
+        declination = math.asin(0.39795 * math.cos(lambda_sun))
+        
+        # Equation of time (minutes)
+        eot = 4 * (lon - 15 * (dt.utcoffset().total_seconds() / 3600 if dt.utcoffset() else 0)) + \
+              229.18 * (0.000075 + 0.001868 * math.cos(math.radians(n)) - 
+                       0.032077 * math.sin(math.radians(n)) - 
+                       0.014615 * math.cos(2 * math.radians(n)) - 
+                       0.040849 * math.sin(2 * math.radians(n)))
+        
+        # True solar time
+        tst = hour_decimal * 60 + eot
         
         # Hour angle
-        time_correction = 4 * (lon - 15 * dt.hour) + 229.18 * (0.000075 + 0.001868 * math.cos(math.radians(n)) 
-                         - 0.032077 * math.sin(math.radians(n)) - 0.014615 * math.cos(2 * math.radians(n)) 
-                         - 0.040849 * math.sin(2 * math.radians(n)))
-        true_solar_time = dt.minute + dt.second / 60.0 + time_correction / 60.0
-        hour_angle = math.radians(15 * (true_solar_time / 60.0 - 12))
+        hour_angle = math.radians(15 * (tst / 60 - 12))
         
         # Solar elevation
         lat_rad = math.radians(lat)
         elevation = math.asin(math.sin(declination) * math.sin(lat_rad) + 
-                            math.cos(declination) * math.cos(lat_rad) * math.cos(hour_angle))
+                             math.cos(declination) * math.cos(lat_rad) * math.cos(hour_angle))
         
         return math.degrees(elevation)
 
