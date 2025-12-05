@@ -945,7 +945,7 @@ Kirigami.ApplicationWindow {
                                         Label {
                                             Layout.fillWidth: true
                                             visible: controller.fullscreenBrightnessEnabled
-                                            text: "Note: Requires wmctrl to be installed for window detection"
+                                            text: "Polls every 5 seconds when enabled. Uses KWin to detect fullscreen windows."
                                             color: "#4c566a"
                                             font.pointSize: 8
                                             font.italic: true

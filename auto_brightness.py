@@ -9,6 +9,7 @@ import math
 import logging
 import sys
 import os
+import re
 
 # Import the hybrid monitor control for KDE + DDC support
 try:
@@ -43,91 +44,257 @@ class AutoBrightnessService:
 
         # Track fullscreen state per monitor
         self.fullscreen_monitors = set()
+        # Mapping from X output names (DP-1, etc) to KDE monitor IDs (kde_0, etc)
+        self._output_to_kde_map = {}
+        # Detect session type for appropriate fullscreen detection method
+        self._session_type = os.environ.get('XDG_SESSION_TYPE', 'x11')
 
     def get_fullscreen_monitors(self):
-        """Detect which monitors have fullscreen windows using KWin"""
+        """Detect which monitors have fullscreen windows using KWin DBus (works on Wayland)"""
         fullscreen_monitors = set()
 
         try:
-            # Get list of all windows from KWin
+            # Get all windows from KWin's WindowsRunner
             result = subprocess.run(
-                ['qdbus', 'org.kde.KWin', '/KWin', 'org.kde.KWin.queryWindowInfo'],
-                capture_output=True, text=True, timeout=5
-            )
-
-            # Alternative: use wmctrl to get window list with geometry
-            result = subprocess.run(
-                ['wmctrl', '-l', '-G'],
-                capture_output=True, text=True, timeout=5
+                ['qdbus', '--literal', 'org.kde.KWin', '/WindowsRunner', 'org.kde.krunner1.Match', ''],
+                capture_output=True, text=True, timeout=3
             )
 
             if result.returncode != 0:
+                logging.info(f"KWin WindowsRunner failed: rc={result.returncode}, stderr={result.stderr}")
                 return fullscreen_monitors
 
-            # Get monitor geometry using xrandr
+            # Extract window UUIDs from output
+            # Format: "0_{uuid}", e.g. "0_{7f5bf574-ca24-4448-b6fc-51cc48e79a5b}"
+            window_uuids = re.findall(r'0_\{([0-9a-f-]+)\}', result.stdout)
+            logging.debug(f"KWin found {len(window_uuids)} windows")
+
+            if not window_uuids:
+                logging.info("No windows found via KWin WindowsRunner")
+                return fullscreen_monitors
+
+            # Get monitor geometry for position mapping
             monitor_geometry = self._get_monitor_geometry()
+            logging.debug(f"Monitor geometry: {monitor_geometry}")
 
-            # Parse wmctrl output to find fullscreen windows
-            for line in result.stdout.strip().split('\n'):
-                if not line:
-                    continue
-                parts = line.split()
-                if len(parts) >= 8:
-                    # Format: window_id desktop_id x y width height hostname title
-                    try:
-                        x, y, width, height = int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5])
+            # Check each window for fullscreen state
+            for uuid in window_uuids:
+                try:
+                    # Get window info from KWin
+                    info_result = subprocess.run(
+                        ['qdbus', 'org.kde.KWin', '/KWin', 'org.kde.KWin.getWindowInfo', f'{{{uuid}}}'],
+                        capture_output=True, text=True, timeout=1
+                    )
 
-                        # Check if window matches any monitor's full dimensions
-                        for monitor_id, geom in monitor_geometry.items():
-                            mx, my, mw, mh = geom
-                            # Window is fullscreen if it covers the entire monitor
-                            if x <= mx and y <= my and width >= mw and height >= mh:
-                                fullscreen_monitors.add(monitor_id)
-                                logging.debug(f"Fullscreen window detected on {monitor_id}")
-                    except (ValueError, IndexError):
+                    if info_result.returncode != 0:
                         continue
 
+                    output = info_result.stdout
+
+                    # Check if window is fullscreen
+                    fullscreen_match = re.search(r'fullscreen:\s*(true|false)', output)
+                    is_fullscreen = fullscreen_match and fullscreen_match.group(1) == 'true'
+
+                    if not is_fullscreen:
+                        continue
+
+                    logging.debug(f"Found fullscreen window with UUID {uuid}")
+
+                    # Get window caption for logging
+                    caption_match = re.search(r'caption:\s*(.+)', output)
+                    window_name = caption_match.group(1).strip() if caption_match else 'unknown'
+
+                    # Get window position
+                    x_match = re.search(r'^x:\s*(\d+)', output, re.MULTILINE)
+                    y_match = re.search(r'^y:\s*(\d+)', output, re.MULTILINE)
+                    w_match = re.search(r'^width:\s*(\d+)', output, re.MULTILINE)
+                    h_match = re.search(r'^height:\s*(\d+)', output, re.MULTILINE)
+
+                    if x_match and y_match and w_match and h_match:
+                        x, y = int(x_match.group(1)), int(y_match.group(1))
+                        w, h = int(w_match.group(1)), int(h_match.group(1))
+
+                        # Find which monitor this window is on
+                        window_center_x = x + w // 2
+                        window_center_y = y + h // 2
+                        logging.debug(f"Fullscreen window at ({x},{y}) size ({w}x{h}), center ({window_center_x},{window_center_y})")
+
+                        for monitor_id, geom in monitor_geometry.items():
+                            mx, my, mw, mh = geom
+                            if mx <= window_center_x < mx + mw and my <= window_center_y < my + mh:
+                                fullscreen_monitors.add(monitor_id)
+                                logging.debug(f"Fullscreen window '{window_name}' matched to {monitor_id}")
+                                break
+                    else:
+                        logging.info(f"Could not get geometry for fullscreen window {uuid}")
+
+                except subprocess.TimeoutExpired:
+                    logging.debug(f"Timeout checking window {uuid}")
+                    continue
+                except Exception as e:
+                    logging.info(f"Error checking window {uuid}: {e}")
+                    continue
+
         except subprocess.TimeoutExpired:
-            logging.warning("Timeout detecting fullscreen windows")
-        except FileNotFoundError:
-            logging.debug("wmctrl not installed, fullscreen detection unavailable")
+            logging.warning("Timeout getting window list from KWin")
         except Exception as e:
-            logging.warning(f"Error detecting fullscreen windows: {e}")
+            logging.debug(f"Error detecting fullscreen windows: {e}")
 
         return fullscreen_monitors
 
+    def _get_output_to_kde_mapping(self):
+        """Build mapping from output names (DP-1, etc.) to KDE display IDs using EDID model names.
+
+        This is necessary because kscreen output indices don't correspond to
+        KDE ScreenBrightness display numbers. We use the monitor model name
+        from EDID to match outputs to KDE displays.
+        """
+        output_to_kde = {}
+
+        # Get monitor names from KDE ScreenBrightness
+        kde_labels = {}
+        if self.hybrid_control:
+            # Ensure monitors are detected first
+            if not self.hybrid_control.monitors:
+                self.hybrid_control.detect_monitors()
+
+            for kde_id in self.hybrid_control.monitors.keys():
+                try:
+                    # Extract display number from kde_N
+                    display_num = kde_id.replace('kde_', '')
+                    result = subprocess.run(
+                        ['qdbus', 'org.kde.ScreenBrightness',
+                         f'/org/kde/ScreenBrightness/display{display_num}',
+                         'org.freedesktop.DBus.Properties.Get',
+                         'org.kde.ScreenBrightness.Display', 'Label'],
+                        capture_output=True, text=True, timeout=2
+                    )
+                    if result.returncode == 0:
+                        label = result.stdout.strip()
+                        kde_labels[kde_id] = label
+                        logging.debug(f"KDE display {kde_id} label: {label}")
+                except Exception as e:
+                    logging.debug(f"Could not get label for {kde_id}: {e}")
+
+        # Get EDID model names for each DRM output
+        drm_base = '/sys/class/drm'
+        try:
+            for entry in os.listdir(drm_base):
+                # Match card*-DP-*, card*-HDMI-*, etc.
+                match = re.match(r'card\d+-(.+)', entry)
+                if not match:
+                    continue
+
+                output_name = match.group(1).replace('-A-', '-')  # HDMI-A-1 -> HDMI-1
+                edid_path = os.path.join(drm_base, entry, 'edid')
+
+                if not os.path.exists(edid_path):
+                    continue
+
+                try:
+                    result = subprocess.run(
+                        ['edid-decode', edid_path],
+                        capture_output=True, text=True, timeout=2
+                    )
+                    if result.returncode == 0:
+                        # Extract product name from EDID
+                        product_match = re.search(r"Display Product Name:\s*'([^']+)'", result.stdout)
+                        if product_match:
+                            product_name = product_match.group(1)
+                            logging.debug(f"Output {output_name} EDID product: {product_name}")
+
+                            # Find matching KDE display
+                            for kde_id, label in kde_labels.items():
+                                if product_name in label:
+                                    output_to_kde[output_name] = kde_id
+                                    logging.debug(f"Mapped {output_name} -> {kde_id} (via '{product_name}')")
+                                    break
+                except Exception as e:
+                    logging.debug(f"Could not read EDID for {output_name}: {e}")
+        except Exception as e:
+            logging.debug(f"Could not enumerate DRM outputs: {e}")
+
+        return output_to_kde
+
     def _get_monitor_geometry(self):
-        """Get geometry of each monitor from xrandr"""
+        """Get geometry of each monitor.
+
+        Uses kscreen-doctor on KDE (works on both Wayland and X11),
+        with xrandr fallback for non-KDE X11 sessions.
+
+        Returns geometry dict with output names (DP-1, HDMI-1) as keys.
+        Also builds a mapping from output names to KDE monitor IDs.
+        """
         geometry = {}
 
+        # Build output-to-KDE mapping using EDID names
+        self._output_to_kde_map = self._get_output_to_kde_mapping()
+
+        # Try kscreen-doctor first (KDE on both Wayland and X11)
         try:
             result = subprocess.run(
-                ['xrandr', '--listmonitors'],
+                ['kscreen-doctor', '--outputs'],
                 capture_output=True, text=True, timeout=5
             )
 
             if result.returncode == 0:
-                for line in result.stdout.strip().split('\n')[1:]:  # Skip header
-                    # Format: 0: +*DP-2 1920/527x1080/296+0+0  DP-2
-                    parts = line.split()
-                    if len(parts) >= 4:
-                        # Parse geometry: WIDTHxHEIGHT+X+Y
-                        geom_str = parts[2].split('/')[0]  # Get first part before /
-                        import re
-                        match = re.search(r'(\d+)/\d+x(\d+)/\d+\+(\d+)\+(\d+)', parts[2])
-                        if match:
-                            w, h, x, y = int(match.group(1)), int(match.group(2)), int(match.group(3)), int(match.group(4))
-                            output_name = parts[-1]  # e.g., DP-2
+                # Strip ANSI color codes from output
+                ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+                clean_output = ansi_escape.sub('', result.stdout)
 
-                            # Map xrandr output to KDE monitor ID
-                            # KDE uses kde_1, kde_2, etc. - we'll match by index for now
-                            monitor_idx = len(geometry)
-                            geometry[f"kde_{monitor_idx + 1}"] = (x, y, w, h)
-                            geometry[output_name] = (x, y, w, h)
+                # Parse kscreen-doctor output to get output name and geometry
+                # Format: Output: 1 DP-1 uuid ... Geometry: 1440,1440 2560x1440
+                current_output = None
+                for line in clean_output.split('\n'):
+                    # Match output line: "Output: 1 DP-1 uuid"
+                    output_match = re.search(r'Output:\s*\d+\s+(\S+)', line)
+                    if output_match:
+                        current_output = output_match.group(1)  # e.g., DP-1, HDMI-1, eDP-1
+                        continue
 
-        except Exception as e:
-            logging.debug(f"Error getting monitor geometry: {e}")
+                    # Match geometry line: "Geometry: 1440,1440 2560x1440"
+                    geom_match = re.search(r'Geometry:\s*(\d+),(\d+)\s+(\d+)x(\d+)', line)
+                    if geom_match and current_output:
+                        x, y, w, h = int(geom_match.group(1)), int(geom_match.group(2)), int(geom_match.group(3)), int(geom_match.group(4))
+                        geometry[current_output] = (x, y, w, h)
 
+                        # Also add geometry for the mapped KDE ID
+                        if current_output in self._output_to_kde_map:
+                            kde_id = self._output_to_kde_map[current_output]
+                            geometry[kde_id] = (x, y, w, h)
+
+                        current_output = None
+
+        except (subprocess.SubprocessError, FileNotFoundError):
+            pass  # kscreen-doctor not available, try xrandr
+
+        # Fallback to xrandr for X11 sessions without KDE
+        if not geometry and self._session_type == 'x11':
+            try:
+                result = subprocess.run(
+                    ['xrandr', '--listmonitors'],
+                    capture_output=True, text=True, timeout=5
+                )
+
+                if result.returncode == 0:
+                    for line in result.stdout.strip().split('\n')[1:]:  # Skip header
+                        # Format: 0: +*DP-2 1920/527x1080/296+0+0  DP-2
+                        parts = line.split()
+                        if len(parts) >= 4:
+                            match = re.search(r'(\d+)/\d+x(\d+)/\d+\+(\d+)\+(\d+)', parts[2])
+                            if match:
+                                w, h, x, y = int(match.group(1)), int(match.group(2)), int(match.group(3)), int(match.group(4))
+                                output_name = parts[-1]  # e.g., DP-2
+                                geometry[output_name] = (x, y, w, h)
+
+                                # Add geometry for KDE ID if we have a mapping (from EDID)
+                                if output_name in self._output_to_kde_map:
+                                    kde_id = self._output_to_kde_map[output_name]
+                                    geometry[kde_id] = (x, y, w, h)
+            except (subprocess.SubprocessError, FileNotFoundError):
+                pass
+
+        logging.debug(f"Monitor geometry: {geometry}, output map: {self._output_to_kde_map}")
         return geometry
 
     def _monitor_has_fullscreen(self, display, fullscreen_monitors):
@@ -135,12 +302,11 @@ class AutoBrightnessService:
         if display in fullscreen_monitors:
             return True
 
-        # Also check by stripping kde_ prefix and matching by index
-        if display.startswith('kde_'):
-            idx = display.replace('kde_', '')
-            # Check various naming conventions
-            for fs_monitor in fullscreen_monitors:
-                if idx in fs_monitor or fs_monitor in display:
+        # Check if any fullscreen monitor's output name maps to this display
+        for fs_monitor in fullscreen_monitors:
+            # If fullscreen monitor is an output name (like DP-1), check our mapping
+            if fs_monitor in self._output_to_kde_map:
+                if self._output_to_kde_map[fs_monitor] == display:
                     return True
 
         return False
@@ -325,7 +491,7 @@ class AutoBrightnessService:
         if self.config["displays"]:
             return self.config["displays"]
 
-        # Try hybrid control first (KDE + DDC) - this finds all 3 monitors
+        # Try hybrid control first (KDE + DDC) - this detects all available monitors
         if self.hybrid_control:
             try:
                 monitors = self.hybrid_control.detect_monitors()
@@ -465,7 +631,14 @@ class AutoBrightnessService:
             return
         
         logging.info(f"Found displays: {displays}")
-        
+
+        # Validate monitor offsets - warn about offsets for non-existent monitors
+        offsets = self.config.get("monitor_offsets", {})
+        for monitor_id in offsets.keys():
+            if monitor_id not in displays:
+                logging.warning(f"Monitor offset configured for '{monitor_id}' but display not found. "
+                              f"Available displays: {displays}")
+
         # Ensure proper contrast on all displays at startup
         logging.info("Checking and adjusting contrast levels for optimal brightness visibility...")
         for display in displays:
@@ -491,40 +664,55 @@ class AutoBrightnessService:
                     lat, lon = new_lat, new_lon
                     logging.info(f"Location updated: {lat:.2f}, {lon:.2f}")
                 
+                # Check for fullscreen windows if enabled
+                fullscreen_enabled = self.config.get("fullscreen_brightness_enabled", False)
+                fullscreen_brightness = self.config.get("fullscreen_brightness", 1.0)
+                fullscreen_poll_interval = 5  # Check fullscreen every 5 seconds
+
                 sunrise, sunset = self.get_sun_times(lat, lon)
                 if sunrise and sunset:
                     brightness = self.calculate_brightness(sunrise, sunset)
 
-                    # Check for fullscreen windows if enabled
-                    fullscreen_enabled = self.config.get("fullscreen_brightness_enabled", False)
-                    fullscreen_brightness = self.config.get("fullscreen_brightness", 1.0)
-                    fullscreen_monitors = set()
-
+                    # If fullscreen detection is enabled, poll more frequently
                     if fullscreen_enabled:
-                        fullscreen_monitors = self.get_fullscreen_monitors()
-                        if fullscreen_monitors:
-                            logging.info(f"Fullscreen detected on: {fullscreen_monitors}")
+                        polls_per_update = self.config["update_interval"] // fullscreen_poll_interval
+                        logging.info(f"Fullscreen detection enabled, polling {polls_per_update} times")
+                        for poll in range(max(1, polls_per_update)):
+                            # Reload config to catch changes
+                            self.config = self.load_config()
+                            if not self.config.get("fullscreen_brightness_enabled", False):
+                                break
 
-                    for display in displays:
-                        # Use fullscreen brightness if this monitor has a fullscreen window
-                        if fullscreen_enabled and self._monitor_has_fullscreen(display, fullscreen_monitors):
-                            self.set_brightness(display, fullscreen_brightness)
-                            logging.info(f"Display {display}: using fullscreen brightness {int(fullscreen_brightness * 100)}%")
-                        else:
+                            fullscreen_monitors = self.get_fullscreen_monitors()
+
+                            if fullscreen_monitors:
+                                logging.debug(f"Fullscreen detected on outputs: {fullscreen_monitors}, mapping: {self._output_to_kde_map}")
+
+                            for display in displays:
+                                has_fs = self._monitor_has_fullscreen(display, fullscreen_monitors)
+                                if has_fs:
+                                    logging.debug(f"Setting {display} to fullscreen brightness {fullscreen_brightness}")
+                                    self.set_brightness(display, fullscreen_brightness)
+                                else:
+                                    self.set_brightness(display, brightness)
+
+                            time.sleep(fullscreen_poll_interval)
+                    else:
+                        # Normal mode - just set brightness and wait
+                        for display in displays:
                             self.set_brightness(display, brightness)
-
-                    logging.info(f"Updated brightness to {brightness:.2f}")
+                        logging.info(f"Updated brightness to {brightness:.2f}")
+                        time.sleep(self.config["update_interval"])
                 else:
                     logging.warning("Could not get sun times, skipping update")
-                
+                    time.sleep(self.config["update_interval"])
+
                 # Periodically re-check contrast levels (every 10 iterations ~ every hour at 5min intervals)
                 iteration_count += 1
                 if iteration_count % 10 == 0:
                     logging.debug("Periodic contrast check...")
                     for display in displays:
                         self.ensure_proper_contrast(display)
-                
-                time.sleep(self.config["update_interval"])
                 
             except KeyboardInterrupt:
                 logging.info("Service stopped by user")
