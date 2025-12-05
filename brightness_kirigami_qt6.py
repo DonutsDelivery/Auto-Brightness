@@ -5,6 +5,7 @@ import os
 import json
 import threading
 import time
+import subprocess
 
 # Set environment variables for Qt6 and GPU acceleration
 os.environ['QT_QPA_PLATFORM'] = 'xcb'
@@ -33,7 +34,7 @@ except ImportError:
     from PyQt5.QtGui import QIcon
     QT_VERSION = 5
 
-from monitor_control import DDCIMonitorControl
+from monitor_control import HybridMonitorControl
 
 class BrightnessController(QObject):
     """Backend controller for brightness and monitor management"""
@@ -52,7 +53,7 @@ class BrightnessController(QObject):
         else:
             self.config_path = "/etc/monitor-remote-control/config.json"
         self._config = self.load_config()
-        self.monitor_control = DDCIMonitorControl()
+        self.monitor_control = HybridMonitorControl()
         self._monitors = {}
         self._current_monitor = None
         
@@ -69,7 +70,12 @@ class BrightnessController(QObject):
         self._cache_timer = QTimer()
         self._cache_timer.timeout.connect(self._clear_value_cache)
         self._cache_timer.start(5000)  # Clear cache every 5 seconds
-        
+
+        # Debounce timer for service restart (prevents rapid restarts during slider drag)
+        self._restart_timer = QTimer()
+        self._restart_timer.setSingleShot(True)
+        self._restart_timer.timeout.connect(self._do_restart_service)
+
         # Initial monitor detection
         self.refresh_monitors()
     
@@ -86,13 +92,26 @@ class BrightnessController(QObject):
                 "longitude": None
             }
     
-    def save_config(self):
+    def save_config(self, restart_service=False):
         try:
             with open(self.config_path, 'w') as f:
                 json.dump(self._config, f, indent=2)
             self.configChanged.emit()
+            if restart_service:
+                self.restart_service()
         except Exception as e:
             self.statusChanged.emit(f"Error saving config: {e}", "error")
+
+    def restart_service(self):
+        """Restart the auto-brightness service to apply changes immediately"""
+        try:
+            subprocess.run(['systemctl', '--user', 'restart', 'auto-brightness.service'],
+                         check=True, capture_output=True)
+            self.statusChanged.emit("Service restarted", "success")
+        except subprocess.CalledProcessError as e:
+            self.statusChanged.emit(f"Failed to restart service: {e}", "error")
+        except Exception as e:
+            self.statusChanged.emit(f"Error restarting service: {e}", "error")
     
     # Properties for QML binding
     @pyqtProperty(float, notify=configChanged)
@@ -102,7 +121,7 @@ class BrightnessController(QObject):
     @minBrightness.setter
     def minBrightness(self, value):
         self._config["min_brightness"] = value / 100
-        self.save_config()
+        self.save_config(restart_service=True)
         self.configChanged.emit()
     
     @pyqtProperty(float, notify=configChanged)
@@ -112,19 +131,29 @@ class BrightnessController(QObject):
     @maxBrightness.setter
     def maxBrightness(self, value):
         self._config["max_brightness"] = value / 100
-        self.save_config()
+        self.save_config(restart_service=True)
         self.configChanged.emit()
     
     @pyqtProperty(bool, notify=configChanged)
     def autoBrightnessEnabled(self):
         return self._config.get("auto_brightness_enabled", True)
     
-    @autoBrightnessEnabled.setter 
+    @autoBrightnessEnabled.setter
     def autoBrightnessEnabled(self, value):
         self._config["auto_brightness_enabled"] = value
-        self.save_config()
+        self.save_config(restart_service=True)
         self.configChanged.emit()
-    
+
+    @pyqtProperty(bool, notify=configChanged)
+    def useElevationScaling(self):
+        return self._config.get("use_elevation_scaling", True)
+
+    @useElevationScaling.setter
+    def useElevationScaling(self, value):
+        self._config["use_elevation_scaling"] = value
+        self.save_config(restart_service=True)
+        self.configChanged.emit()
+
     @pyqtProperty(bool, notify=configChanged)
     def locationOverride(self):
         return bool(self._config.get("latitude") and self._config.get("longitude"))
@@ -241,32 +270,263 @@ class BrightnessController(QObject):
     def _clear_value_cache(self):
         """Clear the VCP value cache periodically"""
         self._value_cache.clear()
+
+    def _do_restart_service(self):
+        """Actually restart the service (called after debounce delay)"""
+        self.statusChanged.emit("Applying brightness settings...", "info")
+
+        def restart_thread():
+            try:
+                import subprocess
+                subprocess.run(['systemctl', '--user', 'restart', 'auto-brightness.service'],
+                             check=True, capture_output=True)
+                self.statusChanged.emit("Brightness updated!", "success")
+            except subprocess.CalledProcessError as e:
+                self.statusChanged.emit("Error applying settings", "error")
+
+        threading.Thread(target=restart_thread, daemon=True).start()
+
+    @pyqtSlot(int)
+    def previewBrightness(self, brightness_percent):
+        """Preview brightness on all monitors in real-time (doesn't save to config)"""
+        def preview_thread():
+            try:
+                monitors = self.monitor_control.detect_monitors()
+                for monitor_id in monitors.keys():
+                    self.monitor_control.set_vcp_value(monitor_id, "10", brightness_percent)
+            except Exception as e:
+                print(f"Preview brightness error: {e}")
+
+        threading.Thread(target=preview_thread, daemon=True).start()
+
+    @pyqtSlot(float, result=int)
+    def calculateCurrentBrightness(self, max_brightness_percent):
+        """Calculate what brightness would be right now based on solar elevation"""
+        try:
+            lat = self._config.get("latitude")
+            lon = self._config.get("longitude")
+            min_b = self._config.get("min_brightness", 0.3)
+            max_b = max_brightness_percent / 100.0
+
+            if not lat or not lon:
+                return int(max_b * 100)
+
+            # Calculate solar elevation
+            from datetime import datetime, timezone
+            import math
+
+            dt = datetime.now(timezone.utc)
+
+            # Julian day calculation
+            a = (14 - dt.month) // 12
+            y = dt.year - a
+            m = dt.month + 12 * a - 3
+            jdn = dt.day + (153 * m + 2) // 5 + 365 * y + y // 4 - y // 100 + y // 400 - 32045
+
+            hour_decimal = dt.hour + dt.minute / 60.0 + dt.second / 3600.0
+            jd = jdn + (hour_decimal - 12) / 24.0
+            n = jd - 2451545.0
+
+            L = (280.460 + 0.9856474 * n) % 360
+            g = math.radians((357.528 + 0.9856003 * n) % 360)
+            lambda_sun = math.radians(L + 1.915 * math.sin(g) + 0.020 * math.sin(2 * g))
+            declination = math.asin(0.39795 * math.cos(lambda_sun))
+
+            # Simplified equation of time
+            eot = 4 * lon + 229.18 * (0.000075 + 0.001868 * math.cos(math.radians(n)) -
+                       0.032077 * math.sin(math.radians(n)) -
+                       0.014615 * math.cos(2 * math.radians(n)) -
+                       0.040849 * math.sin(2 * math.radians(n)))
+
+            tst = hour_decimal * 60 + eot
+            hour_angle = math.radians(15 * (tst / 60 - 12))
+
+            lat_rad = math.radians(lat)
+            elevation = math.degrees(math.asin(math.sin(declination) * math.sin(lat_rad) +
+                                     math.cos(declination) * math.cos(lat_rad) * math.cos(hour_angle)))
+
+            # Check if elevation scaling is enabled
+            use_scaling = self._config.get("use_elevation_scaling", True)
+
+            if not use_scaling:
+                # Simple day/night with twilight transition (-6° to 6°)
+                if elevation <= -6:
+                    brightness = min_b
+                elif elevation <= 6:
+                    # Smooth transition during twilight
+                    factor = (elevation + 6) / 12.0  # 0 at -6°, 1 at 6°
+                    brightness = min_b + (factor * (max_b - min_b))
+                else:
+                    brightness = max_b
+            else:
+                # Calculate brightness based on elevation (accounts for sun height)
+                # Low winter sun = less brightness, high summer sun = full brightness
+                if elevation <= -6:
+                    # Deep night
+                    brightness = min_b
+                elif elevation <= 0:
+                    # Twilight - gradual transition (0% to 30% of range)
+                    twilight_factor = (elevation + 6) / 6.0
+                    brightness = min_b + (0.3 * (max_b - min_b) * twilight_factor)
+                elif elevation <= 15:
+                    # Low sun (sunrise/sunset, winter midday) - 30% to 70%
+                    factor = 0.3 + 0.4 * (elevation / 15.0)
+                    brightness = min_b + (factor * (max_b - min_b))
+                elif elevation <= 40:
+                    # Good daylight - 70% to 100%
+                    factor = 0.7 + 0.3 * ((elevation - 15) / 25.0)
+                    brightness = min_b + (factor * (max_b - min_b))
+                else:
+                    # Bright midday sun - full brightness
+                    brightness = max_b
+
+            return int(brightness * 100)
+        except Exception as e:
+            print(f"Calculate brightness error: {e}")
+            return int(max_brightness_percent)
+
+    @pyqtSlot(result=float)
+    def getSolarElevation(self):
+        """Get current solar elevation in degrees"""
+        try:
+            lat = self._config.get("latitude")
+            lon = self._config.get("longitude")
+
+            if not lat or not lon:
+                return 0.0
+
+            from datetime import datetime, timezone
+            import math
+
+            dt = datetime.now(timezone.utc)
+
+            a = (14 - dt.month) // 12
+            y = dt.year - a
+            m = dt.month + 12 * a - 3
+            jdn = dt.day + (153 * m + 2) // 5 + 365 * y + y // 4 - y // 100 + y // 400 - 32045
+
+            hour_decimal = dt.hour + dt.minute / 60.0 + dt.second / 3600.0
+            jd = jdn + (hour_decimal - 12) / 24.0
+            n = jd - 2451545.0
+
+            L = (280.460 + 0.9856474 * n) % 360
+            g = math.radians((357.528 + 0.9856003 * n) % 360)
+            lambda_sun = math.radians(L + 1.915 * math.sin(g) + 0.020 * math.sin(2 * g))
+            declination = math.asin(0.39795 * math.cos(lambda_sun))
+
+            eot = 4 * lon + 229.18 * (0.000075 + 0.001868 * math.cos(math.radians(n)) -
+                       0.032077 * math.sin(math.radians(n)) -
+                       0.014615 * math.cos(2 * math.radians(n)) -
+                       0.040849 * math.sin(2 * math.radians(n)))
+
+            tst = hour_decimal * 60 + eot
+            hour_angle = math.radians(15 * (tst / 60 - 12))
+
+            lat_rad = math.radians(lat)
+            elevation = math.degrees(math.asin(math.sin(declination) * math.sin(lat_rad) +
+                                     math.cos(declination) * math.cos(lat_rad) * math.cos(hour_angle)))
+
+            return round(elevation, 1)
+        except Exception as e:
+            print(f"getSolarElevation error: {e}")
+            return 0.0
+
+    @pyqtSlot(result=str)
+    def getBrightnessPhase(self):
+        """Get description of current brightness phase"""
+        elevation = self.getSolarElevation()
+        use_scaling = self._config.get("use_elevation_scaling", True)
+
+        if not use_scaling:
+            # Simple day/night/twilight phases for full brightness mode
+            if elevation <= -6:
+                return "Night"
+            elif elevation <= 6:
+                return "Twilight"
+            else:
+                return "Day"
+        else:
+            # Detailed elevation-based phases
+            if elevation <= -6:
+                return "Night"
+            elif elevation <= 0:
+                return "Twilight"
+            elif elevation <= 15:
+                return "Low Sun"
+            elif elevation <= 40:
+                return "Daylight"
+            else:
+                return "Bright Sun"
+
+    @pyqtSlot(result=bool)
+    def isDaytime(self):
+        """Check if it's currently daytime based on solar elevation"""
+        try:
+            lat = self._config.get("latitude")
+            lon = self._config.get("longitude")
+
+            if not lat or not lon:
+                return True  # Default to daytime
+
+            from datetime import datetime, timezone
+            import math
+
+            dt = datetime.now(timezone.utc)
+
+            a = (14 - dt.month) // 12
+            y = dt.year - a
+            m = dt.month + 12 * a - 3
+            jdn = dt.day + (153 * m + 2) // 5 + 365 * y + y // 4 - y // 100 + y // 400 - 32045
+
+            hour_decimal = dt.hour + dt.minute / 60.0 + dt.second / 3600.0
+            jd = jdn + (hour_decimal - 12) / 24.0
+            n = jd - 2451545.0
+
+            L = (280.460 + 0.9856474 * n) % 360
+            g = math.radians((357.528 + 0.9856003 * n) % 360)
+            lambda_sun = math.radians(L + 1.915 * math.sin(g) + 0.020 * math.sin(2 * g))
+            declination = math.asin(0.39795 * math.cos(lambda_sun))
+
+            eot = 4 * lon + 229.18 * (0.000075 + 0.001868 * math.cos(math.radians(n)) -
+                       0.032077 * math.sin(math.radians(n)) -
+                       0.014615 * math.cos(2 * math.radians(n)) -
+                       0.040849 * math.sin(2 * math.radians(n)))
+
+            tst = hour_decimal * 60 + eot
+            hour_angle = math.radians(15 * (tst / 60 - 12))
+
+            lat_rad = math.radians(lat)
+            elevation = math.degrees(math.asin(math.sin(declination) * math.sin(lat_rad) +
+                                     math.cos(declination) * math.cos(lat_rad) * math.cos(hour_angle)))
+
+            return elevation > 0
+        except Exception as e:
+            print(f"isDaytime error: {e}")
+            return True
     
     @pyqtSlot()
     def detectMonitorCapabilities(self):
         """Detect capabilities for the current monitor"""
         if not self._current_monitor:
             return
-            
+
         def detect_thread():
             try:
-                # Get capabilities from monitor_control using i2c bus
+                # Get capabilities from monitor_control using monitor_id
                 if self._current_monitor in self._monitors:
-                    bus = self._monitors[self._current_monitor].get('bus')
-                    if bus:
-                        capabilities_data = self.monitor_control.get_monitor_capabilities(bus)
-                        # Extract VCP feature codes
-                        features = capabilities_data.get('features', {})
-                        vcp_codes = list(features.keys())
-                        
-                        # Update monitor info on main thread
-                        self._monitors[self._current_monitor]['capabilities'] = vcp_codes
-                        self._monitors[self._current_monitor]['features'] = features
-                        self.monitorsChanged.emit()
-                        
+                    capabilities_data = self.monitor_control.get_monitor_capabilities(self._current_monitor)
+                    # Extract VCP feature codes
+                    features = capabilities_data.get('features', {})
+                    vcp_codes = list(features.keys())
+
+                    # Update monitor info on main thread
+                    self._monitors[self._current_monitor]['capabilities'] = vcp_codes
+                    self._monitors[self._current_monitor]['features'] = features
+                    self.monitorsChanged.emit()
+
             except Exception as e:
                 print(f"Error detecting capabilities: {e}")
-        
+
         threading.Thread(target=detect_thread, daemon=True).start()
     
     @pyqtSlot()
@@ -275,35 +535,41 @@ class BrightnessController(QObject):
         try:
             monitors_data = self.monitor_control.detect_monitors()
             self._monitors = {}
-            
+
             for display_id, monitor_info in monitors_data.items():
                 bus = monitor_info.get('i2c_bus')
-                model = monitor_info.get('model', 'Unknown')
+                # Use label if available (from KDE), otherwise model
+                model = monitor_info.get('label', monitor_info.get('model', 'Unknown'))
                 capabilities_data = monitor_info.get('capabilities', {})
-                
+                backend = monitor_info.get('backend', 'ddc')
+
                 # Extract VCP feature codes
                 features = capabilities_data.get('features', {})
                 vcp_codes = list(features.keys())
-                
+
                 self._monitors[display_id] = {
                     'id': display_id,
-                    'name': f"{model} (Display {display_id})",
+                    'name': model,
                     'bus': bus,
+                    'backend': backend,
                     'capabilities': vcp_codes,
                     'features': features
                 }
-            
+
             if not self._current_monitor and self._monitors:
                 self._current_monitor = list(self._monitors.keys())[0]
                 print(f"DEBUG: Auto-selected first monitor: {self._current_monitor}")
-            
+
             print(f"DEBUG: Monitors after refresh: {list(self._monitors.keys())}")
             for mid, minfo in self._monitors.items():
-                print(f"  Monitor {mid}: {minfo['name']}, caps: {len(minfo.get('capabilities', []))}")
-            
+                backend = minfo.get('backend', 'unknown')
+                print(f"  Monitor {mid}: {minfo['name']} [backend={backend}], caps: {len(minfo.get('capabilities', []))}")
+
             self.monitorsChanged.emit()
         except Exception as e:
             print(f"Error refreshing monitors: {e}")
+            import traceback
+            traceback.print_exc()
     
     @pyqtSlot()
     def restartService(self):
@@ -324,20 +590,21 @@ class BrightnessController(QObject):
     @pyqtSlot(str, str, int)
     def setMonitorValue(self, monitor_id, vcp_code, value):
         """Set a VCP value for a monitor"""
+        print(f"DEBUG setMonitorValue: monitor_id={monitor_id}, vcp_code={vcp_code}, value={value}")
+        print(f"DEBUG available monitors: {list(self._monitors.keys())}")
         try:
             if monitor_id in self._monitors:
-                bus = self._monitors[monitor_id].get('bus')
-                if bus:
-                    success = self.monitor_control.set_vcp_value(bus, vcp_code, value)
-                    if success:
-                        # Update cache with new value for immediate UI feedback
-                        cache_key = f"{monitor_id}_{vcp_code}"
-                        self._value_cache[cache_key] = value
-                        self.statusChanged.emit(f"Set monitor {monitor_id} VCP {vcp_code} to {value}", "success")
-                    else:
-                        self.statusChanged.emit(f"Failed to set monitor {monitor_id} VCP {vcp_code}", "error")
+                # Use the hybrid controller which handles KDE/DDC routing
+                success = self.monitor_control.set_vcp_value(monitor_id, vcp_code, value)
+                if success:
+                    # Update cache with new value for immediate UI feedback
+                    cache_key = f"{monitor_id}_{vcp_code}"
+                    self._value_cache[cache_key] = value
+                    self.statusChanged.emit(f"Set VCP {vcp_code} to {value}", "success")
                 else:
-                    self.statusChanged.emit(f"No bus found for monitor {monitor_id}", "error")
+                    self.statusChanged.emit(f"Failed to set VCP {vcp_code}", "error")
+            else:
+                self.statusChanged.emit(f"Monitor {monitor_id} not found", "error")
         except Exception as e:
             self.statusChanged.emit(f"Error setting monitor value: {e}", "error")
     
@@ -345,39 +612,21 @@ class BrightnessController(QObject):
     def getMonitorValue(self, monitor_id, vcp_code):
         """Get current VCP value for a monitor with caching"""
         cache_key = f"{monitor_id}_{vcp_code}"
-        
+
         # Check cache first
         if cache_key in self._value_cache:
             return self._value_cache[cache_key]
-        
+
         try:
             if monitor_id in self._monitors:
-                bus = self._monitors[monitor_id].get('bus')
-                if bus:
-                    # Use a quick timeout to avoid hanging on problematic features
-                    import subprocess
-                    try:
-                        result = subprocess.run(
-                            ['ddcutil', '--bus', bus, 'getvcp', vcp_code],
-                            capture_output=True, text=True, timeout=1, check=True  # Reduced timeout for responsiveness
-                        )
-                        # Parse the output to extract current value
-                        for line in result.stdout.split('\n'):
-                            if 'current value' in line.lower():
-                                import re
-                                value_match = re.search(r'current value\s*=\s*(\d+)', line)
-                                if value_match:
-                                    value = int(value_match.group(1))
-                                    # Cache the result
-                                    self._value_cache[cache_key] = value
-                                    return value
-                        # Cache zero result to avoid repeated failures
-                        self._value_cache[cache_key] = 0
-                        return 0
-                    except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
-                        # Cache zero result to avoid repeated failures
-                        self._value_cache[cache_key] = 0
-                        return 0
+                # Use the hybrid controller which handles KDE/DDC routing
+                value = self.monitor_control.get_vcp_value(monitor_id, vcp_code)
+                if value is not None:
+                    self._value_cache[cache_key] = value
+                    return value
+                # Cache zero for failed reads
+                self._value_cache[cache_key] = 0
+                return 0
             self._value_cache[cache_key] = 0
             return 0
         except Exception as e:

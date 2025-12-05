@@ -44,7 +44,28 @@ Kirigami.ApplicationWindow {
         visible = true
         opacity = 1.0
     }
-    
+
+    // Brightness preview throttle (500ms interval) - at root level for global access
+    Timer {
+        id: brightnessPreviewTimer
+        interval: 500
+        repeat: false
+        onTriggered: {
+            root.canPreview = true
+        }
+    }
+    property int pendingBrightness: -1
+    property bool canPreview: true
+
+    function throttledPreview(brightness) {
+        root.pendingBrightness = brightness
+        if (root.canPreview) {
+            controller.previewBrightness(brightness)
+            root.canPreview = false
+            brightnessPreviewTimer.start()
+        }
+    }
+
     BrightnessController {
         id: controller
         
@@ -186,76 +207,374 @@ Kirigami.ApplicationWindow {
                                     }
                                 }
                                 
+                                // Solar Status & Brightness Visualization
+                                Rectangle {
+                                    id: solarStatusCard
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 150
+                                    color: "#3b4252"
+                                    radius: 12
+                                    border.color: "#5e81ac"
+                                    border.width: 1
+                                    antialiasing: true
+                                    clip: true
+
+                                    // Auto-refresh solar data
+                                    Timer {
+                                        interval: 60000  // Update every minute
+                                        running: true
+                                        repeat: true
+                                        onTriggered: solarStatusCard.refreshData()
+                                    }
+
+                                    function refreshData() {
+                                        solarElevation = controller.getSolarElevation()
+                                        brightnessPhase = controller.getBrightnessPhase()
+                                        calculatedBrightness = controller.calculateCurrentBrightness(controller.maxBrightness)
+                                    }
+
+                                    property real solarElevation: controller.getSolarElevation()
+                                    property string brightnessPhase: controller.getBrightnessPhase()
+                                    property int calculatedBrightness: controller.calculateCurrentBrightness(controller.maxBrightness)
+
+                                    ColumnLayout {
+                                        anchors.fill: parent
+                                        anchors.margins: 12
+                                        spacing: 10
+
+                                        // Top row: Sun icon, elevation, phase badge, and result
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 16
+
+                                            // Sun/Moon icon with elevation
+                                            RowLayout {
+                                                spacing: 8
+
+                                                Rectangle {
+                                                    width: 36
+                                                    height: 36
+                                                    radius: 18
+                                                    color: solarStatusCard.solarElevation > 0 ? "#ebcb8b" : "#81a1c1"
+                                                    border.color: solarStatusCard.solarElevation > 0 ? "#d08770" : "#5e81ac"
+                                                    border.width: 2
+
+                                                    Label {
+                                                        anchors.centerIn: parent
+                                                        text: solarStatusCard.solarElevation > 0 ? "☀" : "☾"
+                                                        font.pointSize: 16
+                                                        color: "#2e3440"
+                                                    }
+                                                }
+
+                                                ColumnLayout {
+                                                    spacing: 0
+
+                                                    Label {
+                                                        text: "Sun Elevation"
+                                                        font.pointSize: 9
+                                                        color: "#d8dee9"
+                                                    }
+
+                                                    Label {
+                                                        text: solarStatusCard.solarElevation.toFixed(1) + "°"
+                                                        font.bold: true
+                                                        font.pointSize: 14
+                                                        color: "#eceff4"
+                                                    }
+                                                }
+                                            }
+
+                                            // Phase badge
+                                            Rectangle {
+                                                width: 75
+                                                height: 28
+                                                radius: 6
+                                                color: {
+                                                    var phase = solarStatusCard.brightnessPhase
+                                                    if (phase === "Night") return "#4c566a"
+                                                    if (phase === "Twilight") return "#b48ead"
+                                                    if (phase === "Low Sun") return "#d08770"
+                                                    if (phase === "Daylight") return "#ebcb8b"
+                                                    return "#a3be8c"
+                                                }
+
+                                                Label {
+                                                    anchors.centerIn: parent
+                                                    text: solarStatusCard.brightnessPhase
+                                                    font.bold: true
+                                                    font.pointSize: 10
+                                                    color: "#2e3440"
+                                                }
+                                            }
+
+                                            Item { Layout.fillWidth: true }
+
+                                            // Result
+                                            ColumnLayout {
+                                                spacing: 0
+                                                Layout.alignment: Qt.AlignRight
+
+                                                Label {
+                                                    text: "Monitor Brightness"
+                                                    font.pointSize: 9
+                                                    color: "#d8dee9"
+                                                    Layout.alignment: Qt.AlignRight
+                                                }
+
+                                                Label {
+                                                    text: solarStatusCard.calculatedBrightness + "%"
+                                                    font.bold: true
+                                                    font.pointSize: 18
+                                                    color: "#a3be8c"
+                                                    Layout.alignment: Qt.AlignRight
+                                                }
+                                            }
+                                        }
+
+                                        // Progress bar
+                                        Rectangle {
+                                            Layout.fillWidth: true
+                                            height: 10
+                                            color: "#2e3440"
+                                            radius: 5
+
+                                            Rectangle {
+                                                width: parent.width * (solarStatusCard.calculatedBrightness / 100)
+                                                height: parent.height
+                                                radius: 5
+                                                gradient: Gradient {
+                                                    orientation: Gradient.Horizontal
+                                                    GradientStop { position: 0.0; color: "#5e81ac" }
+                                                    GradientStop { position: 1.0; color: "#a3be8c" }
+                                                }
+                                                Behavior on width { NumberAnimation { duration: 300 } }
+                                            }
+                                        }
+
+                                        // Elevation scaling toggle and brightness curve
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 8
+
+                                            // Toggle for elevation scaling
+                                            Rectangle {
+                                                id: fullBrightToggle
+                                                implicitWidth: fullBrightRow.implicitWidth + 16
+                                                height: 38
+                                                radius: 4
+                                                color: "#2e3440"
+                                                border.color: controller.useElevationScaling ? "#4c566a" : "#a3be8c"
+                                                border.width: 1
+
+                                                Row {
+                                                    id: fullBrightRow
+                                                    anchors.centerIn: parent
+                                                    spacing: 4
+
+                                                    CheckBox {
+                                                        id: elevationScalingSwitch
+                                                        checked: !controller.useElevationScaling
+                                                        anchors.verticalCenter: parent.verticalCenter
+                                                        onToggled: {
+                                                            controller.useElevationScaling = !checked
+                                                            solarStatusCard.refreshData()
+                                                        }
+                                                    }
+
+                                                    Label {
+                                                        text: "Full brightness"
+                                                        font.pointSize: 8
+                                                        color: elevationScalingSwitch.checked ? "#a3be8c" : "#d8dee9"
+                                                        anchors.verticalCenter: parent.verticalCenter
+                                                    }
+                                                }
+                                            }
+
+                                            // Brightness curve as horizontal segments (elevation scaling mode)
+                                            Repeater {
+                                                model: [
+                                                    { label: "Night", range: "< -6°", active: solarStatusCard.solarElevation <= -6, color: "#4c566a" },
+                                                    { label: "Twilight", range: "-6° to 0°", active: solarStatusCard.solarElevation > -6 && solarStatusCard.solarElevation <= 0, color: "#b48ead" },
+                                                    { label: "Low Sun", range: "0° to 15°", active: solarStatusCard.solarElevation > 0 && solarStatusCard.solarElevation <= 15, color: "#d08770" },
+                                                    { label: "Daylight", range: "15° to 40°", active: solarStatusCard.solarElevation > 15 && solarStatusCard.solarElevation <= 40, color: "#ebcb8b" },
+                                                    { label: "Bright", range: "> 40°", active: solarStatusCard.solarElevation > 40, color: "#a3be8c" }
+                                                ]
+
+                                                Rectangle {
+                                                    Layout.fillWidth: true
+                                                    height: 38
+                                                    radius: 4
+                                                    color: modelData.active ? modelData.color : "#2e3440"
+                                                    border.color: modelData.active ? modelData.color : "#4c566a"
+                                                    border.width: 1
+                                                    visible: controller.useElevationScaling
+
+                                                    ColumnLayout {
+                                                        anchors.centerIn: parent
+                                                        spacing: 1
+
+                                                        Label {
+                                                            text: modelData.label
+                                                            font.pointSize: 9
+                                                            font.bold: modelData.active
+                                                            color: modelData.active ? "#2e3440" : "#4c566a"
+                                                            Layout.alignment: Qt.AlignHCenter
+                                                        }
+
+                                                        Label {
+                                                            text: modelData.range
+                                                            font.pointSize: 8
+                                                            color: modelData.active ? "#2e3440" : "#4c566a"
+                                                            Layout.alignment: Qt.AlignHCenter
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            // Simple day/night cycle with twilight (full brightness mode)
+                                            Repeater {
+                                                model: [
+                                                    { label: "Night", range: "< -6°", icon: "🌙", brightness: Math.round(controller.minBrightness) + "%", active: solarStatusCard.solarElevation <= -6, color: "#4c566a" },
+                                                    { label: "Twilight", range: "-6° to 6°", icon: "🌅", brightness: "transition", active: solarStatusCard.solarElevation > -6 && solarStatusCard.solarElevation <= 6, color: "#b48ead" },
+                                                    { label: "Day", range: "> 6°", icon: "☀️", brightness: Math.round(controller.maxBrightness) + "%", active: solarStatusCard.solarElevation > 6, color: "#ebcb8b" }
+                                                ]
+
+                                                Rectangle {
+                                                    Layout.fillWidth: true
+                                                    height: 38
+                                                    radius: 4
+                                                    color: modelData.active ? modelData.color : "#2e3440"
+                                                    border.color: modelData.active ? modelData.color : "#4c566a"
+                                                    border.width: 1
+                                                    visible: !controller.useElevationScaling
+
+                                                    RowLayout {
+                                                        anchors.centerIn: parent
+                                                        spacing: 6
+
+                                                        Label {
+                                                            text: modelData.icon
+                                                            font.pointSize: 12
+                                                        }
+
+                                                        ColumnLayout {
+                                                            spacing: 0
+
+                                                            Label {
+                                                                text: modelData.label
+                                                                font.pointSize: 9
+                                                                font.bold: modelData.active
+                                                                color: modelData.active ? "#2e3440" : "#4c566a"
+                                                            }
+
+                                                            Label {
+                                                                text: modelData.range
+                                                                font.pointSize: 8
+                                                                color: modelData.active ? "#2e3440" : "#4c566a"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
                                 // Brightness Range Controls
                                 RowLayout {
                                     Layout.fillWidth: true
                                     spacing: Kirigami.Units.largeSpacing
-                                    
+
                                     // Night brightness
                                     Rectangle {
                                         Layout.fillWidth: true
-                                        Layout.preferredHeight: 160
+                                        Layout.preferredHeight: 180
                                         color: "#3b4252"
                                         radius: 10
-                                        border.color: "#81a1c1"
-                                        border.width: 1
+                                        border.color: minSlider.pressed ? "#ebcb8b" : "#81a1c1"
+                                        border.width: minSlider.pressed ? 2 : 1
                                         antialiasing: true
-                                        
+
                                         ColumnLayout {
                                             anchors.fill: parent
                                             anchors.margins: Kirigami.Units.largeSpacing
                                             spacing: Kirigami.Units.largeSpacing
-                                            
+
                                             RowLayout {
                                                 Layout.fillWidth: true
-                                                
+
                                                 Rectangle {
-                                                    width: 40
+                                                    width: minSlider.pressed ? 70 : 40
                                                     height: 20
-                                                    color: "#81a1c1"
+                                                    color: minSlider.pressed ? "#ebcb8b" : "#81a1c1"
                                                     radius: 4
-                                                    
+
+                                                    Behavior on width { NumberAnimation { duration: 150 } }
+                                                    Behavior on color { ColorAnimation { duration: 150 } }
+
                                                     Label {
                                                         anchors.centerIn: parent
-                                                        text: "NIGHT"
-                                                        color: "#eceff4"
+                                                        text: minSlider.pressed ? "PREVIEW" : "NIGHT"
+                                                        color: "#2e3440"
                                                         font.bold: true
                                                         font.pointSize: 8
                                                     }
                                                 }
-                                                
+
                                                 Label {
                                                     text: "Night Brightness"
                                                     font.bold: true
                                                     font.pointSize: 12
                                                     color: "#eceff4"
                                                 }
-                                                
+
                                                 Item { Layout.fillWidth: true }
-                                                
+
                                                 Label {
                                                     text: Math.round(minSlider.value) + "%"
                                                     font.bold: true
                                                     font.pointSize: 16
-                                                    color: "#81a1c1"
+                                                    color: minSlider.pressed ? "#ebcb8b" : "#81a1c1"
+
+                                                    Behavior on color { ColorAnimation { duration: 150 } }
                                                 }
                                             }
-                                            
+
                                             Slider {
                                                 id: minSlider
                                                 Layout.fillWidth: true
                                                 from: 5
                                                 to: 80
                                                 value: controller.minBrightness
-                                                onPressedChanged: if (!pressed) controller.minBrightness = value
+
+                                                // Throttled preview while dragging (500ms interval)
+                                                onMoved: {
+                                                    root.throttledPreview(Math.round(value))
+                                                }
+
+                                                // Save and restore proper brightness when done
+                                                onPressedChanged: {
+                                                    if (!pressed) {
+                                                        // Save the new value
+                                                        controller.minBrightness = value
+                                                        // Restore to current time-appropriate brightness
+                                                        var currentBrightness = controller.calculateCurrentBrightness(controller.maxBrightness)
+                                                        controller.previewBrightness(currentBrightness)
+                                                        // Update the solar status card
+                                                        solarStatusCard.refreshData()
+                                                    }
+                                                }
                                             }
-                                            
+
                                             Label {
                                                 Layout.alignment: Qt.AlignHCenter
-                                                text: "When the sun is down"
-                                                color: "#d8dee9"
+                                                text: minSlider.pressed ? "Previewing night brightness..." : "When the sun is down"
+                                                color: minSlider.pressed ? "#ebcb8b" : "#d8dee9"
                                                 font.italic: true
                                                 font.pointSize: 10
+
+                                                Behavior on color { ColorAnimation { duration: 150 } }
                                             }
                                         }
                                     }
@@ -263,68 +582,94 @@ Kirigami.ApplicationWindow {
                                     // Day brightness
                                     Rectangle {
                                         Layout.fillWidth: true
-                                        Layout.preferredHeight: 160
+                                        Layout.preferredHeight: 180
                                         color: "#3b4252"
                                         radius: 10
-                                        border.color: "#d08770"
-                                        border.width: 1
+                                        border.color: maxSlider.pressed ? "#ebcb8b" : "#d08770"
+                                        border.width: maxSlider.pressed ? 2 : 1
                                         antialiasing: true
-                                        
+
                                         ColumnLayout {
                                             anchors.fill: parent
                                             anchors.margins: Kirigami.Units.largeSpacing
                                             spacing: Kirigami.Units.largeSpacing
-                                            
+
                                             RowLayout {
                                                 Layout.fillWidth: true
-                                                
+
                                                 Rectangle {
-                                                    width: 40
+                                                    width: maxSlider.pressed ? 70 : 40
                                                     height: 20
-                                                    color: "#d08770"
+                                                    color: maxSlider.pressed ? "#ebcb8b" : "#d08770"
                                                     radius: 4
-                                                    
+
+                                                    Behavior on width { NumberAnimation { duration: 150 } }
+                                                    Behavior on color { ColorAnimation { duration: 150 } }
+
                                                     Label {
                                                         anchors.centerIn: parent
-                                                        text: "DAY"
-                                                        color: "#eceff4"
+                                                        text: maxSlider.pressed ? "PREVIEW" : "DAY"
+                                                        color: "#2e3440"
                                                         font.bold: true
                                                         font.pointSize: 8
                                                     }
                                                 }
-                                                
+
                                                 Label {
                                                     text: "Day Brightness"
                                                     font.bold: true
                                                     font.pointSize: 12
                                                     color: "#eceff4"
                                                 }
-                                                
+
                                                 Item { Layout.fillWidth: true }
-                                                
+
                                                 Label {
                                                     text: Math.round(maxSlider.value) + "%"
                                                     font.bold: true
                                                     font.pointSize: 16
-                                                    color: "#d08770"
+                                                    color: maxSlider.pressed ? "#ebcb8b" : "#d08770"
+
+                                                    Behavior on color { ColorAnimation { duration: 150 } }
                                                 }
                                             }
-                                            
+
                                             Slider {
                                                 id: maxSlider
                                                 Layout.fillWidth: true
-                                                from: 50
+                                                from: 20
                                                 to: 100
                                                 value: controller.maxBrightness
-                                                onPressedChanged: if (!pressed) controller.maxBrightness = value
+
+                                                // Throttled preview while dragging (500ms interval)
+                                                onMoved: {
+                                                    // Preview the actual brightness that would apply at current solar position
+                                                    var previewBrightness = controller.calculateCurrentBrightness(Math.round(value))
+                                                    root.throttledPreview(previewBrightness)
+                                                }
+
+                                                // Save and restore proper brightness when done
+                                                onPressedChanged: {
+                                                    if (!pressed) {
+                                                        // Save the new value
+                                                        controller.maxBrightness = value
+                                                        // Apply the new calculated brightness
+                                                        var currentBrightness = controller.calculateCurrentBrightness(Math.round(value))
+                                                        controller.previewBrightness(currentBrightness)
+                                                        // Update the solar status card
+                                                        solarStatusCard.refreshData()
+                                                    }
+                                                }
                                             }
-                                            
+
                                             Label {
                                                 Layout.alignment: Qt.AlignHCenter
-                                                text: "When the sun is up"
-                                                color: "#d8dee9"
+                                                text: maxSlider.pressed ? "Previewing day brightness..." : "When the sun is up"
+                                                color: maxSlider.pressed ? "#ebcb8b" : "#d8dee9"
                                                 font.italic: true
                                                 font.pointSize: 10
+
+                                                Behavior on color { ColorAnimation { duration: 150 } }
                                             }
                                         }
                                     }

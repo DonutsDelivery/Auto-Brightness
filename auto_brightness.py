@@ -10,6 +10,14 @@ import logging
 import sys
 import os
 
+# Import the hybrid monitor control for KDE + DDC support
+try:
+    from monitor_control import HybridMonitorControl
+    HAS_HYBRID_CONTROL = True
+except ImportError:
+    HAS_HYBRID_CONTROL = False
+
+
 class AutoBrightnessService:
     def __init__(self, config_path=None):
         if config_path is None:
@@ -22,6 +30,16 @@ class AutoBrightnessService:
         self.config_path = config_path
         self.config = self.load_config()
         self.setup_logging()
+
+        # Initialize hybrid monitor control if available
+        self.hybrid_control = None
+        if HAS_HYBRID_CONTROL:
+            try:
+                self.hybrid_control = HybridMonitorControl()
+                logging.info("Using HybridMonitorControl (KDE + DDC)")
+            except Exception as e:
+                logging.warning(f"Could not initialize HybridMonitorControl: {e}")
+                self.hybrid_control = None
         
     def load_config(self):
         default_config = {
@@ -135,20 +153,48 @@ class AutoBrightnessService:
         now = datetime.now(timezone.utc)
         lat = self.config["latitude"]
         lon = self.config["longitude"]
-        
+
         # Calculate solar elevation angle
         elevation = self.calculate_solar_elevation(lat, lon, now)
-        
-        # Convert elevation to brightness using a smooth curve
-        # Solar elevation ranges from -90° (night) to 90° (noon)
-        # We'll use a curve that:
-        # - Minimum brightness below -6° (civil twilight)
-        # - Smooth transition from -6° to 0° (horizon)
-        # - Peak brightness around 30-60° elevation
-        
+
+        logging.info(f"Solar elevation: {elevation:.1f}°")
+
         min_brightness = self.config["min_brightness"]
         max_brightness = self.config["max_brightness"]
-        
+
+        # Check if elevation scaling is enabled
+        use_scaling = self.config.get("use_elevation_scaling", True)
+
+        if not use_scaling:
+            # Simple day/night mode with twilight transition
+            # -6° to 6° is the transition zone (civil twilight through early morning)
+            if elevation <= -6:
+                logging.info("Full brightness mode - night (below civil twilight)")
+                return min_brightness
+            elif elevation <= 6:
+                # Smooth transition during twilight (-6° to 6°)
+                factor = (elevation + 6) / 12.0  # 0 at -6°, 1 at 6°
+                brightness = min_brightness + (factor * (max_brightness - min_brightness))
+                logging.info(f"Full brightness mode - twilight transition ({factor*100:.0f}%)")
+                return brightness
+            else:
+                logging.info("Full brightness mode - day (sun above 6°)")
+                return max_brightness
+
+        # Convert elevation to brightness using a curve that accounts for sun height
+        #
+        # The sun's maximum elevation varies by latitude and season:
+        # - Summer solstice: 90° - latitude + 23.5°
+        # - Winter solstice: 90° - latitude - 23.5°
+        # At 56°N: summer max ~57°, winter max ~10°
+        #
+        # Brightness curve:
+        # - Below -6° (civil twilight): minimum brightness
+        # - -6° to 0° (twilight): 0% to 30% of range
+        # - 0° to 15°: 30% to 70% of range (morning/evening, low winter sun)
+        # - 15° to 40°: 70% to 100% of range (good daylight)
+        # - Above 40°: 100% (bright midday sun)
+
         if elevation <= -6:
             # Deep night (civil twilight and below)
             return min_brightness
@@ -157,25 +203,38 @@ class AutoBrightnessService:
             twilight_factor = (elevation + 6) / 6.0
             return min_brightness + (0.3 * (max_brightness - min_brightness) * twilight_factor)
         elif elevation <= 15:
-            # Early morning/evening - gradual increase
-            factor = elevation / 15.0
-            return min_brightness + (0.6 * (max_brightness - min_brightness) * factor)
-        elif elevation <= 30:
-            # Good daylight - steeper increase
-            factor = 0.6 + 0.3 * (elevation - 15) / 15.0
+            # Low sun (sunrise/sunset, or winter midday at high latitudes)
+            # 0° -> 30%, 15° -> 70%
+            factor = 0.3 + 0.4 * (elevation / 15.0)
+            return min_brightness + (factor * (max_brightness - min_brightness))
+        elif elevation <= 40:
+            # Good daylight - sun reasonably high
+            # 15° -> 70%, 40° -> 100%
+            factor = 0.7 + 0.3 * ((elevation - 15) / 25.0)
             return min_brightness + (factor * (max_brightness - min_brightness))
         else:
-            # Peak daylight (elevation > 30°)
-            # Use a slight curve to max out around 45-60°
-            peak_factor = min(1.0, 0.9 + 0.1 * min(1.0, (elevation - 30) / 30.0))
-            return min_brightness + (peak_factor * (max_brightness - min_brightness))
+            # Bright midday sun (elevation > 40°)
+            return max_brightness
     
     def get_displays(self):
+        """Get list of displays - uses hybrid control if available for all monitors"""
         if self.config["displays"]:
             return self.config["displays"]
-        
+
+        # Try hybrid control first (KDE + DDC) - this finds all 3 monitors
+        if self.hybrid_control:
+            try:
+                monitors = self.hybrid_control.detect_monitors()
+                if monitors:
+                    display_ids = list(monitors.keys())
+                    logging.info(f"Found {len(display_ids)} displays via HybridMonitorControl")
+                    return display_ids
+            except Exception as e:
+                logging.warning(f"HybridMonitorControl detection failed: {e}")
+
+        # Fall back to ddcutil
         try:
-            result = subprocess.run(['ddcutil', 'detect', '--brief'], 
+            result = subprocess.run(['ddcutil', 'detect', '--brief'],
                                   capture_output=True, text=True, check=True)
             displays = []
             for line in result.stdout.split('\n'):
@@ -189,6 +248,10 @@ class AutoBrightnessService:
     
     def ensure_proper_contrast(self, display):
         """Ensure the monitor has adequate contrast for brightness changes to be visible"""
+        # Skip KDE-only displays - they don't have DDC access for contrast control
+        if display.startswith('kde_'):
+            return
+
         try:
             # Check current contrast
             result = subprocess.run(['ddcutil', '--bus', display, 'getvcp', '12'], 
@@ -220,9 +283,28 @@ class AutoBrightnessService:
             logging.warning(f"Unexpected error checking contrast for display {display}: {e}")
 
     def set_brightness(self, display, brightness):
+        """Set brightness for a display - uses hybrid control if available"""
+        brightness_percent = int(brightness * 100)
+
+        # Try hybrid control first (works for all monitors)
+        if self.hybrid_control:
+            try:
+                success = self.hybrid_control.set_brightness(display, brightness_percent)
+                if success:
+                    logging.info(f"Set display {display} brightness to {brightness_percent}%")
+                    return
+                else:
+                    logging.warning(f"HybridMonitorControl failed for {display}, trying ddcutil")
+            except Exception as e:
+                logging.warning(f"HybridMonitorControl error for {display}: {e}")
+
+        # Fall back to ddcutil for bus-based displays (skip kde_ displays)
+        if display.startswith('kde_'):
+            logging.error(f"Cannot set brightness for KDE display {display} without HybridMonitorControl")
+            return
+
         try:
-            brightness_percent = int(brightness * 100)
-            subprocess.run(['ddcutil', '--bus', display, 'setvcp', '10', str(brightness_percent)], 
+            subprocess.run(['ddcutil', '--bus', display, 'setvcp', '10', str(brightness_percent)],
                          check=True, capture_output=True)
             logging.info(f"Set display {display} brightness to {brightness_percent}%")
         except subprocess.CalledProcessError as e:
