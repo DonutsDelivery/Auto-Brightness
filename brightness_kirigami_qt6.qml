@@ -674,7 +674,152 @@ Kirigami.ApplicationWindow {
                                         }
                                     }
                                 }
-                                
+
+                                // Monitor Calibration Section
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: monitorCalibrationColumn.implicitHeight + 2 * Kirigami.Units.largeSpacing
+                                    color: "#3b4252"
+                                    radius: 10
+                                    border.color: "#88c0d0"
+                                    border.width: 1
+                                    antialiasing: true
+
+                                    ColumnLayout {
+                                        id: monitorCalibrationColumn
+                                        anchors.fill: parent
+                                        anchors.margins: Kirigami.Units.largeSpacing
+                                        spacing: Kirigami.Units.smallSpacing
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+
+                                            Rectangle {
+                                                width: 80
+                                                height: 20
+                                                color: "#88c0d0"
+                                                radius: 4
+
+                                                Label {
+                                                    anchors.centerIn: parent
+                                                    text: "CALIBRATE"
+                                                    color: "#2e3440"
+                                                    font.bold: true
+                                                    font.pointSize: 8
+                                                }
+                                            }
+
+                                            Label {
+                                                text: "Monitor Brightness Offset"
+                                                font.bold: true
+                                                font.pointSize: 12
+                                                color: "#eceff4"
+                                            }
+
+                                            Item { Layout.fillWidth: true }
+
+                                            Button {
+                                                text: "Refresh"
+                                                icon.name: "view-refresh"
+                                                onClicked: controller.refreshMonitorList()
+                                            }
+                                        }
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: "Adjust individual monitor brightness to compensate for different panel characteristics"
+                                            color: "#d8dee9"
+                                            font.italic: true
+                                            font.pointSize: 9
+                                            wrapMode: Text.WordWrap
+                                        }
+
+                                        // Monitor list with offset sliders
+                                        Repeater {
+                                            model: controller.monitors
+
+                                            Rectangle {
+                                                Layout.fillWidth: true
+                                                height: 60
+                                                color: "#2e3440"
+                                                radius: 6
+
+                                                RowLayout {
+                                                    anchors.fill: parent
+                                                    anchors.margins: 10
+                                                    spacing: 10
+
+                                                    // Monitor icon and name
+                                                    ColumnLayout {
+                                                        Layout.preferredWidth: 180
+                                                        spacing: 2
+
+                                                        Label {
+                                                            text: modelData.label || modelData.model || modelData.id
+                                                            font.bold: true
+                                                            font.pointSize: 10
+                                                            color: "#eceff4"
+                                                            elide: Text.ElideRight
+                                                            Layout.fillWidth: true
+                                                        }
+
+                                                        Label {
+                                                            text: modelData.id
+                                                            font.pointSize: 8
+                                                            color: "#4c566a"
+                                                            elide: Text.ElideRight
+                                                            Layout.fillWidth: true
+                                                        }
+                                                    }
+
+                                                    // Offset slider
+                                                    Slider {
+                                                        id: offsetSlider
+                                                        Layout.fillWidth: true
+                                                        from: -50
+                                                        to: 50
+                                                        value: controller.getMonitorOffset(modelData.id)
+                                                        stepSize: 1
+
+                                                        onPressedChanged: {
+                                                            if (!pressed) {
+                                                                controller.setMonitorOffset(modelData.id, Math.round(value))
+                                                            }
+                                                        }
+                                                    }
+
+                                                    // Offset value display
+                                                    Rectangle {
+                                                        width: 50
+                                                        height: 30
+                                                        color: offsetSlider.value === 0 ? "#4c566a" : (offsetSlider.value > 0 ? "#a3be8c" : "#bf616a")
+                                                        radius: 4
+
+                                                        Label {
+                                                            anchors.centerIn: parent
+                                                            text: (offsetSlider.value > 0 ? "+" : "") + Math.round(offsetSlider.value) + "%"
+                                                            font.bold: true
+                                                            font.pointSize: 10
+                                                            color: "#eceff4"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // No monitors message
+                                        Label {
+                                            Layout.fillWidth: true
+                                            Layout.alignment: Qt.AlignHCenter
+                                            visible: controller.monitors.length === 0
+                                            text: "No monitors detected. Click Refresh to scan."
+                                            color: "#4c566a"
+                                            font.italic: true
+                                            horizontalAlignment: Text.AlignHCenter
+                                        }
+                                    }
+                                }
+
                                 // Service Control
                                 Rectangle {
                                     Layout.fillWidth: true
@@ -684,12 +829,12 @@ Kirigami.ApplicationWindow {
                                     border.color: "#a3be8c"
                                     border.width: 1
                                     antialiasing: true
-                                    
+
                                     RowLayout {
                                         anchors.fill: parent
                                         anchors.margins: Kirigami.Units.largeSpacing
                                         spacing: Kirigami.Units.largeSpacing
-                                        
+
                                         Rectangle {
                                             width: 60
                                             height: 30

@@ -229,7 +229,34 @@ class BrightnessController(QObject):
         if self._current_monitor and self._current_monitor in self._monitors:
             return self._monitors[self._current_monitor].get('features', {})
         return {}
-    
+
+    @pyqtProperty('QVariant', notify=configChanged)
+    def monitorOffsets(self):
+        """Get brightness offsets for all monitors"""
+        return self._config.get("monitor_offsets", {})
+
+    @pyqtSlot(str, int)
+    def setMonitorOffset(self, monitor_id, offset):
+        """Set brightness offset for a specific monitor (-50 to +50)"""
+        offset = max(-50, min(50, offset))  # Clamp to valid range
+        offsets = self._config.get("monitor_offsets", {})
+        offsets[monitor_id] = offset
+        self._config["monitor_offsets"] = offsets
+        self.save_config(restart_service=True)
+        self.configChanged.emit()
+
+    @pyqtSlot(str, result=int)
+    def getMonitorOffset(self, monitor_id):
+        """Get brightness offset for a specific monitor"""
+        offsets = self._config.get("monitor_offsets", {})
+        return offsets.get(monitor_id, 0)
+
+    @pyqtSlot()
+    def refreshMonitorList(self):
+        """Refresh the list of detected monitors for calibration"""
+        self.detectMonitors()
+        self.monitorsChanged.emit()
+
     @pyqtSlot(str)
     def lookupCity(self, city_name):
         """Look up coordinates for a city name"""

@@ -282,9 +282,21 @@ class AutoBrightnessService:
         except Exception as e:
             logging.warning(f"Unexpected error checking contrast for display {display}: {e}")
 
+    def get_monitor_offset(self, display):
+        """Get brightness offset for a specific monitor"""
+        offsets = self.config.get("monitor_offsets", {})
+        return offsets.get(display, 0)
+
     def set_brightness(self, display, brightness):
         """Set brightness for a display - uses hybrid control if available"""
-        brightness_percent = int(brightness * 100)
+        # Apply monitor-specific offset
+        offset = self.get_monitor_offset(display)
+        brightness_percent = int(brightness * 100) + offset
+        # Clamp to valid range
+        brightness_percent = max(0, min(100, brightness_percent))
+
+        if offset != 0:
+            logging.info(f"Display {display}: base {int(brightness * 100)}% + offset {offset:+d}% = {brightness_percent}%")
 
         # Try hybrid control first (works for all monitors)
         if self.hybrid_control:
