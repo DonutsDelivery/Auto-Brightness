@@ -40,7 +40,111 @@ class AutoBrightnessService:
             except Exception as e:
                 logging.warning(f"Could not initialize HybridMonitorControl: {e}")
                 self.hybrid_control = None
-        
+
+        # Track fullscreen state per monitor
+        self.fullscreen_monitors = set()
+
+    def get_fullscreen_monitors(self):
+        """Detect which monitors have fullscreen windows using KWin"""
+        fullscreen_monitors = set()
+
+        try:
+            # Get list of all windows from KWin
+            result = subprocess.run(
+                ['qdbus', 'org.kde.KWin', '/KWin', 'org.kde.KWin.queryWindowInfo'],
+                capture_output=True, text=True, timeout=5
+            )
+
+            # Alternative: use wmctrl to get window list with geometry
+            result = subprocess.run(
+                ['wmctrl', '-l', '-G'],
+                capture_output=True, text=True, timeout=5
+            )
+
+            if result.returncode != 0:
+                return fullscreen_monitors
+
+            # Get monitor geometry using xrandr
+            monitor_geometry = self._get_monitor_geometry()
+
+            # Parse wmctrl output to find fullscreen windows
+            for line in result.stdout.strip().split('\n'):
+                if not line:
+                    continue
+                parts = line.split()
+                if len(parts) >= 8:
+                    # Format: window_id desktop_id x y width height hostname title
+                    try:
+                        x, y, width, height = int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5])
+
+                        # Check if window matches any monitor's full dimensions
+                        for monitor_id, geom in monitor_geometry.items():
+                            mx, my, mw, mh = geom
+                            # Window is fullscreen if it covers the entire monitor
+                            if x <= mx and y <= my and width >= mw and height >= mh:
+                                fullscreen_monitors.add(monitor_id)
+                                logging.debug(f"Fullscreen window detected on {monitor_id}")
+                    except (ValueError, IndexError):
+                        continue
+
+        except subprocess.TimeoutExpired:
+            logging.warning("Timeout detecting fullscreen windows")
+        except FileNotFoundError:
+            logging.debug("wmctrl not installed, fullscreen detection unavailable")
+        except Exception as e:
+            logging.warning(f"Error detecting fullscreen windows: {e}")
+
+        return fullscreen_monitors
+
+    def _get_monitor_geometry(self):
+        """Get geometry of each monitor from xrandr"""
+        geometry = {}
+
+        try:
+            result = subprocess.run(
+                ['xrandr', '--listmonitors'],
+                capture_output=True, text=True, timeout=5
+            )
+
+            if result.returncode == 0:
+                for line in result.stdout.strip().split('\n')[1:]:  # Skip header
+                    # Format: 0: +*DP-2 1920/527x1080/296+0+0  DP-2
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        # Parse geometry: WIDTHxHEIGHT+X+Y
+                        geom_str = parts[2].split('/')[0]  # Get first part before /
+                        import re
+                        match = re.search(r'(\d+)/\d+x(\d+)/\d+\+(\d+)\+(\d+)', parts[2])
+                        if match:
+                            w, h, x, y = int(match.group(1)), int(match.group(2)), int(match.group(3)), int(match.group(4))
+                            output_name = parts[-1]  # e.g., DP-2
+
+                            # Map xrandr output to KDE monitor ID
+                            # KDE uses kde_1, kde_2, etc. - we'll match by index for now
+                            monitor_idx = len(geometry)
+                            geometry[f"kde_{monitor_idx + 1}"] = (x, y, w, h)
+                            geometry[output_name] = (x, y, w, h)
+
+        except Exception as e:
+            logging.debug(f"Error getting monitor geometry: {e}")
+
+        return geometry
+
+    def _monitor_has_fullscreen(self, display, fullscreen_monitors):
+        """Check if a display has a fullscreen window"""
+        if display in fullscreen_monitors:
+            return True
+
+        # Also check by stripping kde_ prefix and matching by index
+        if display.startswith('kde_'):
+            idx = display.replace('kde_', '')
+            # Check various naming conventions
+            for fs_monitor in fullscreen_monitors:
+                if idx in fs_monitor or fs_monitor in display:
+                    return True
+
+        return False
+
     def load_config(self):
         default_config = {
             "latitude": None,
@@ -390,10 +494,25 @@ class AutoBrightnessService:
                 sunrise, sunset = self.get_sun_times(lat, lon)
                 if sunrise and sunset:
                     brightness = self.calculate_brightness(sunrise, sunset)
-                    
+
+                    # Check for fullscreen windows if enabled
+                    fullscreen_enabled = self.config.get("fullscreen_brightness_enabled", False)
+                    fullscreen_brightness = self.config.get("fullscreen_brightness", 1.0)
+                    fullscreen_monitors = set()
+
+                    if fullscreen_enabled:
+                        fullscreen_monitors = self.get_fullscreen_monitors()
+                        if fullscreen_monitors:
+                            logging.info(f"Fullscreen detected on: {fullscreen_monitors}")
+
                     for display in displays:
-                        self.set_brightness(display, brightness)
-                    
+                        # Use fullscreen brightness if this monitor has a fullscreen window
+                        if fullscreen_enabled and self._monitor_has_fullscreen(display, fullscreen_monitors):
+                            self.set_brightness(display, fullscreen_brightness)
+                            logging.info(f"Display {display}: using fullscreen brightness {int(fullscreen_brightness * 100)}%")
+                        else:
+                            self.set_brightness(display, brightness)
+
                     logging.info(f"Updated brightness to {brightness:.2f}")
                 else:
                     logging.warning("Could not get sun times, skipping update")

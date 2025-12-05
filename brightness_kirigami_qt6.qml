@@ -820,6 +820,139 @@ Kirigami.ApplicationWindow {
                                     }
                                 }
 
+                                // Fullscreen Brightness Section
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: fullscreenColumn.implicitHeight + 2 * Kirigami.Units.largeSpacing
+                                    color: "#3b4252"
+                                    radius: 10
+                                    border.color: controller.fullscreenBrightnessEnabled ? "#b48ead" : "#4c566a"
+                                    border.width: 1
+                                    antialiasing: true
+
+                                    ColumnLayout {
+                                        id: fullscreenColumn
+                                        anchors.fill: parent
+                                        anchors.margins: Kirigami.Units.largeSpacing
+                                        spacing: Kirigami.Units.smallSpacing
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+
+                                            Rectangle {
+                                                width: 90
+                                                height: 20
+                                                color: controller.fullscreenBrightnessEnabled ? "#b48ead" : "#4c566a"
+                                                radius: 4
+
+                                                Label {
+                                                    anchors.centerIn: parent
+                                                    text: "FULLSCREEN"
+                                                    color: "#2e3440"
+                                                    font.bold: true
+                                                    font.pointSize: 8
+                                                }
+                                            }
+
+                                            Label {
+                                                text: "Fullscreen Brightness"
+                                                font.bold: true
+                                                font.pointSize: 12
+                                                color: "#eceff4"
+                                            }
+
+                                            Item { Layout.fillWidth: true }
+
+                                            Switch {
+                                                id: fullscreenSwitch
+                                                checked: controller.fullscreenBrightnessEnabled
+                                                onToggled: controller.fullscreenBrightnessEnabled = checked
+                                            }
+                                        }
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: "Override brightness when an application goes fullscreen (e.g., games, videos)"
+                                            color: "#d8dee9"
+                                            font.italic: true
+                                            font.pointSize: 9
+                                            wrapMode: Text.WordWrap
+                                        }
+
+                                        // Fullscreen brightness slider
+                                        Rectangle {
+                                            Layout.fillWidth: true
+                                            height: 70
+                                            color: "#2e3440"
+                                            radius: 6
+                                            visible: controller.fullscreenBrightnessEnabled
+
+                                            RowLayout {
+                                                anchors.fill: parent
+                                                anchors.margins: 10
+                                                spacing: 15
+
+                                                ColumnLayout {
+                                                    Layout.preferredWidth: 100
+                                                    spacing: 2
+
+                                                    Label {
+                                                        text: "Brightness"
+                                                        font.bold: true
+                                                        font.pointSize: 10
+                                                        color: "#eceff4"
+                                                    }
+
+                                                    Label {
+                                                        text: "When fullscreen"
+                                                        font.pointSize: 8
+                                                        color: "#4c566a"
+                                                    }
+                                                }
+
+                                                Slider {
+                                                    id: fullscreenSlider
+                                                    Layout.fillWidth: true
+                                                    from: 20
+                                                    to: 100
+                                                    value: controller.fullscreenBrightness
+                                                    stepSize: 1
+
+                                                    onPressedChanged: {
+                                                        if (!pressed) {
+                                                            controller.fullscreenBrightness = Math.round(value)
+                                                        }
+                                                    }
+                                                }
+
+                                                Rectangle {
+                                                    width: 50
+                                                    height: 30
+                                                    color: "#b48ead"
+                                                    radius: 4
+
+                                                    Label {
+                                                        anchors.centerIn: parent
+                                                        text: Math.round(fullscreenSlider.value) + "%"
+                                                        font.bold: true
+                                                        font.pointSize: 10
+                                                        color: "#2e3440"
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            visible: controller.fullscreenBrightnessEnabled
+                                            text: "Note: Requires wmctrl to be installed for window detection"
+                                            color: "#4c566a"
+                                            font.pointSize: 8
+                                            font.italic: true
+                                        }
+                                    }
+                                }
+
                                 // Service Control
                                 Rectangle {
                                     Layout.fillWidth: true
@@ -840,7 +973,7 @@ Kirigami.ApplicationWindow {
                                             height: 30
                                             color: "#a3be8c"
                                             radius: 6
-                                            
+
                                             Label {
                                                 anchors.centerIn: parent
                                                 text: "SERVICE"
@@ -849,18 +982,18 @@ Kirigami.ApplicationWindow {
                                                 font.pointSize: 9
                                             }
                                         }
-                                        
+
                                         ColumnLayout {
                                             Layout.fillWidth: true
                                             spacing: 0
-                                            
+
                                             Label {
                                                 text: "Service Control"
                                                 font.bold: true
                                                 font.pointSize: 12
                                                 color: "#eceff4"
                                             }
-                                            
+
                                             Label {
                                                 text: "Restart auto brightness service to apply changes"
                                                 color: "#d8dee9"

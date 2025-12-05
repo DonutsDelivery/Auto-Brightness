@@ -155,6 +155,26 @@ class BrightnessController(QObject):
         self.configChanged.emit()
 
     @pyqtProperty(bool, notify=configChanged)
+    def fullscreenBrightnessEnabled(self):
+        return self._config.get("fullscreen_brightness_enabled", False)
+
+    @fullscreenBrightnessEnabled.setter
+    def fullscreenBrightnessEnabled(self, value):
+        self._config["fullscreen_brightness_enabled"] = value
+        self.save_config(restart_service=True)
+        self.configChanged.emit()
+
+    @pyqtProperty(float, notify=configChanged)
+    def fullscreenBrightness(self):
+        return self._config.get("fullscreen_brightness", 1.0) * 100
+
+    @fullscreenBrightness.setter
+    def fullscreenBrightness(self, value):
+        self._config["fullscreen_brightness"] = value / 100
+        self.save_config(restart_service=True)
+        self.configChanged.emit()
+
+    @pyqtProperty(bool, notify=configChanged)
     def locationOverride(self):
         return bool(self._config.get("latitude") and self._config.get("longitude"))
     
