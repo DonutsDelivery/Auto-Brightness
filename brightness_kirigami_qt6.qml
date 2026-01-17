@@ -2161,7 +2161,25 @@ Kirigami.ApplicationWindow {
                     RowLayout {
                         anchors.centerIn: parent
                         spacing: Kirigami.Units.largeSpacing
-                        
+
+                        Text {
+                            text: "<a href='https://ko-fi.com/donutsdelivery' style='color: #88c0d0; text-decoration: none;'>Support on Ko-fi</a>"
+                            color: "#d8dee9"
+                            font.pixelSize: 12
+                            onLinkActivated: Qt.openUrlExternally(link)
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: Qt.openUrlExternally("https://ko-fi.com/donutsdelivery")
+                            }
+                        }
+
+                        Rectangle {
+                            width: 1
+                            height: 20
+                            color: "#4c566a"
+                        }
+
                         Button {
                             text: "Close Application"
                             onClicked: Qt.quit()
