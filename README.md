@@ -1,6 +1,7 @@
 # Auto-Brightness
 
 [![Discord](https://img.shields.io/badge/Discord-Join%20Server-5865F2?logo=discord&logoColor=white)](https://discord.gg/ZhvPhXrdZ4)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/donutsdelivery)
 
 **[Join our Discord](https://discord.gg/ZhvPhXrdZ4)** for help, feature requests, and discussions.
 
