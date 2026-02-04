@@ -1,9 +1,16 @@
 # Auto-Brightness
 
+[![Website](https://img.shields.io/badge/Website-View%20Project-4285F4?logo=google-chrome&logoColor=white)](https://donutsdelivery.online/#monitorremotecontrol)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Server-5865F2?logo=discord&logoColor=white)](https://discord.gg/ZhvPhXrdZ4)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Support-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/donutsdelivery)
 
-**[Join our Discord](https://discord.gg/ZhvPhXrdZ4)** for help, feature requests, and discussions.
+<p align="center">
+  <a href="https://donutsdelivery.online/#monitorremotecontrol">
+    <img src="https://donutsdelivery.online/assets/mockups/thumbs/monitorremotecontrol-mockup-1.svg" alt="Auto-Brightness Mockup" width="600">
+  </a>
+</p>
+
+**[View Project Website](https://donutsdelivery.online/#monitorremotecontrol)** | **[Join our Discord](https://discord.gg/ZhvPhXrdZ4)** for help, feature requests, and discussions.
 
 ---
 
