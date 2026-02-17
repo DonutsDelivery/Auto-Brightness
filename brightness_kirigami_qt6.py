@@ -255,21 +255,35 @@ class BrightnessController(QObject):
         """Get brightness offsets for all monitors"""
         return self._config.get("monitor_offsets", {})
 
+    def _get_monitor_label(self, monitor_id):
+        """Get the label/name for a monitor ID to use as stable identifier"""
+        if monitor_id in self._monitors:
+            return self._monitors[monitor_id].get('name', monitor_id)
+        return monitor_id
+
     @pyqtSlot(str, int)
     def setMonitorOffset(self, monitor_id, offset):
-        """Set brightness offset for a specific monitor (-50 to +50)"""
+        """Set brightness offset for a specific monitor (-50 to +50)
+
+        Uses monitor label as key for persistence across reboots.
+        """
         offset = max(-50, min(50, offset))  # Clamp to valid range
+        label = self._get_monitor_label(monitor_id)
         offsets = self._config.get("monitor_offsets", {})
-        offsets[monitor_id] = offset
+        offsets[label] = offset
         self._config["monitor_offsets"] = offsets
         self.save_config(restart_service=True)
         self.configChanged.emit()
 
     @pyqtSlot(str, result=int)
     def getMonitorOffset(self, monitor_id):
-        """Get brightness offset for a specific monitor"""
+        """Get brightness offset for a specific monitor
+
+        Looks up by monitor label for persistence across reboots.
+        """
+        label = self._get_monitor_label(monitor_id)
         offsets = self._config.get("monitor_offsets", {})
-        return offsets.get(monitor_id, 0)
+        return offsets.get(label, 0)
 
     @pyqtSlot()
     def refreshMonitorList(self):

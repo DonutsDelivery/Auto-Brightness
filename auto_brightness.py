@@ -376,7 +376,7 @@ class AutoBrightnessService:
         """Calculate solar elevation angle in degrees"""
         # Get Julian day number
         a = (14 - dt.month) // 12
-        y = dt.year - a
+        y = dt.year + 4800 - a
         m = dt.month + 12 * a - 3
         jdn = dt.day + (153 * m + 2) // 5 + 365 * y + y // 4 - y // 100 + y // 400 - 32045
         
@@ -397,7 +397,7 @@ class AutoBrightnessService:
         lambda_sun = math.radians(L + 1.915 * math.sin(g) + 0.020 * math.sin(2 * g))
         
         # Solar declination
-        declination = math.asin(0.39795 * math.cos(lambda_sun))
+        declination = math.asin(0.39795 * math.sin(lambda_sun))
         
         # Equation of time (minutes)
         eot = 4 * (lon - 15 * (dt.utcoffset().total_seconds() / 3600 if dt.utcoffset() else 0)) + \
@@ -552,9 +552,24 @@ class AutoBrightnessService:
         except Exception as e:
             logging.warning(f"Unexpected error checking contrast for display {display}: {e}")
 
+    def _get_monitor_label(self, display):
+        """Get the label for a monitor to use as stable identifier for offsets"""
+        if self.hybrid_control and display in self.hybrid_control.monitors:
+            return self.hybrid_control.monitors[display].get('label', display)
+        return display
+
     def get_monitor_offset(self, display):
-        """Get brightness offset for a specific monitor"""
+        """Get brightness offset for a specific monitor
+
+        Looks up by monitor label for persistence across reboots.
+        Also checks by display ID for backwards compatibility.
+        """
         offsets = self.config.get("monitor_offsets", {})
+        # Try by label first (new behavior)
+        label = self._get_monitor_label(display)
+        if label in offsets:
+            return offsets[label]
+        # Fall back to display ID (backwards compatibility)
         return offsets.get(display, 0)
 
     def set_brightness(self, display, brightness):
@@ -634,10 +649,13 @@ class AutoBrightnessService:
 
         # Validate monitor offsets - warn about offsets for non-existent monitors
         offsets = self.config.get("monitor_offsets", {})
-        for monitor_id in offsets.keys():
-            if monitor_id not in displays:
-                logging.warning(f"Monitor offset configured for '{monitor_id}' but display not found. "
-                              f"Available displays: {displays}")
+        # Build list of valid labels
+        valid_labels = [self._get_monitor_label(d) for d in displays]
+        for offset_key in offsets.keys():
+            # Check if offset key matches any display ID or label
+            if offset_key not in displays and offset_key not in valid_labels:
+                logging.warning(f"Monitor offset configured for '{offset_key}' but display not found. "
+                              f"Available displays: {displays}, labels: {valid_labels}")
 
         # Ensure proper contrast on all displays at startup
         logging.info("Checking and adjusting contrast levels for optimal brightness visibility...")
@@ -651,13 +669,19 @@ class AutoBrightnessService:
             try:
                 # Reload config each iteration to check for changes
                 self.config = self.load_config()
-                
+
                 # Check if auto brightness was disabled
                 if not self.config.get("auto_brightness_enabled", True):
                     logging.info("Auto brightness disabled. Pausing automatic adjustments.")
                     time.sleep(30)
                     continue
-                
+
+                # Refresh display list each iteration to handle KDE renumbering
+                new_displays = self.get_displays()
+                if new_displays != displays:
+                    logging.info(f"Display list changed: {displays} -> {new_displays}")
+                    displays = new_displays
+
                 # Update location if it changed
                 new_lat, new_lon = self.get_location()
                 if new_lat != lat or new_lon != lon:
