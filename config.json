@@ -9,7 +9,8 @@
   "auto_brightness_enabled": true,
   "monitor_offsets": {
     "Dell Inc. DELL P2418D": -30,
-    "C27ATILIUSX1-": 0
+    "C27ATILIUSX1-": 0,
+    "C27ATILIUSX1": -15
   },
   "fullscreen_brightness_enabled": true
 }

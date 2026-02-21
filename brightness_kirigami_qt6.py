@@ -272,8 +272,9 @@ class BrightnessController(QObject):
         offsets = self._config.get("monitor_offsets", {})
         offsets[label] = offset
         self._config["monitor_offsets"] = offsets
-        self.save_config(restart_service=True)
-        self.configChanged.emit()
+        self.save_config()  # save_config already emits configChanged
+        # Debounced async restart to avoid blocking the UI thread
+        self._restart_timer.start(300)
 
     @pyqtSlot(str, result=int)
     def getMonitorOffset(self, monitor_id):
@@ -611,6 +612,8 @@ class BrightnessController(QObject):
                 self._monitors[display_id] = {
                     'id': display_id,
                     'name': model,
+                    'label': model,
+                    'model': model,
                     'bus': bus,
                     'backend': backend,
                     'capabilities': vcp_codes,

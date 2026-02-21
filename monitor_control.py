@@ -169,6 +169,177 @@ class KDEScreenBrightness:
             return False
 
 
+class RawDDCIMonitorControl:
+    """Raw I2C DDC/CI control for monitors that ddcutil can't auto-detect.
+
+    Some NVIDIA GPU/driver combinations don't expose a DRM connector-to-i2c
+    mapping in sysfs, causing ddcutil to skip monitors that are otherwise
+    fully DDC/CI capable.  This class probes NVIDIA i2c adapters directly
+    and talks DDC/CI over raw I2C.
+    """
+
+    DDC_ADDR = 0x37       # DDC/CI slave address
+    EDID_ADDR = 0x50      # EDID slave address
+    I2C_SLAVE = 0x0703    # ioctl request code
+
+    def __init__(self):
+        self.monitors = {}  # bus_str -> monitor info
+        self.logger = logging.getLogger('RawDDCI')
+
+    # ---- low-level helpers ------------------------------------------------
+
+    @staticmethod
+    def _open_bus(bus: int):
+        import fcntl, os as _os
+        fd = _os.open(f'/dev/i2c-{bus}', _os.O_RDWR)
+        return fd
+
+    def _probe_ddc(self, bus: int) -> bool:
+        """Return True if DDC/CI address responds on *bus*."""
+        import fcntl, os as _os
+        try:
+            fd = self._open_bus(bus)
+            try:
+                fcntl.ioctl(fd, self.I2C_SLAVE, self.DDC_ADDR)
+                # Try a tiny read — will raise OSError if nothing there
+                _os.read(fd, 1)
+                return True
+            except OSError:
+                return False
+            finally:
+                _os.close(fd)
+        except OSError:
+            return False
+
+    def _read_edid_name(self, bus: int) -> Optional[str]:
+        """Read the product name from EDID on *bus*."""
+        import fcntl, os as _os
+        try:
+            fd = self._open_bus(bus)
+            try:
+                fcntl.ioctl(fd, self.I2C_SLAVE, self.EDID_ADDR)
+                _os.write(fd, bytes([0]))
+                edid = _os.read(fd, 128)
+                # Search descriptor area for 0x00 0x00 0xFC (product name tag)
+                for i in range(54, 110):
+                    if edid[i] == 0x00 and edid[i + 1] == 0x00 and edid[i + 2] == 0xFC:
+                        raw = edid[i + 4:i + 17]
+                        return raw.decode('ascii', errors='replace').strip().rstrip('\x00')
+            finally:
+                _os.close(fd)
+        except Exception:
+            pass
+        return None
+
+    # ---- DDC/CI VCP protocol ---------------------------------------------
+
+    def _vcp_get(self, bus: int, feature: int) -> Optional[Tuple[int, int]]:
+        """Read a VCP feature.  Returns (current, max) or None."""
+        import fcntl, os as _os, time as _time
+        fd = self._open_bus(bus)
+        try:
+            fcntl.ioctl(fd, self.I2C_SLAVE, self.DDC_ADDR)
+            length = 0x82  # 0x80 | 2
+            cmd = 0x01     # VCP Get
+            chk = 0x6E ^ 0x51 ^ length ^ cmd ^ feature
+            _os.write(fd, bytes([0x51, length, cmd, feature, chk]))
+            _time.sleep(0.05)
+            resp = _os.read(fd, 12)
+            if len(resp) >= 10 and resp[2] == 0x02 and resp[3] == 0x00:
+                max_val = (resp[6] << 8) | resp[7]
+                cur_val = (resp[8] << 8) | resp[9]
+                return cur_val, max_val
+        except Exception as e:
+            self.logger.debug(f"VCP get 0x{feature:02x} on bus {bus} failed: {e}")
+        finally:
+            _os.close(fd)
+        return None
+
+    def _vcp_set(self, bus: int, feature: int, value: int) -> bool:
+        """Write a VCP feature value."""
+        import fcntl, os as _os, time as _time
+        fd = self._open_bus(bus)
+        try:
+            fcntl.ioctl(fd, self.I2C_SLAVE, self.DDC_ADDR)
+            length = 0x84  # 0x80 | 4
+            cmd = 0x03     # VCP Set
+            val_hi = (value >> 8) & 0xFF
+            val_lo = value & 0xFF
+            chk = 0x6E ^ 0x51 ^ length ^ cmd ^ feature ^ val_hi ^ val_lo
+            _os.write(fd, bytes([0x51, length, cmd, feature, val_hi, val_lo, chk]))
+            _time.sleep(0.05)
+            return True
+        except Exception as e:
+            self.logger.debug(f"VCP set 0x{feature:02x}={value} on bus {bus} failed: {e}")
+            return False
+        finally:
+            _os.close(fd)
+
+    # ---- public API -------------------------------------------------------
+
+    def detect_unmapped_monitors(self, known_buses: set) -> Dict[str, Dict[str, Any]]:
+        """Scan NVIDIA i2c adapters not in *known_buses* for DDC-capable monitors."""
+        monitors = {}
+        try:
+            import os as _os
+            sysfs = '/sys/bus/i2c/devices'
+            for entry in sorted(_os.listdir(sysfs)):
+                if not entry.startswith('i2c-'):
+                    continue
+                bus = int(entry.split('-')[1])
+                if str(bus) in known_buses:
+                    continue
+                # Only probe NVIDIA adapters
+                try:
+                    name_path = _os.path.join(sysfs, entry, 'name')
+                    with open(name_path) as f:
+                        adapter_name = f.read().strip()
+                    if 'NVIDIA' not in adapter_name:
+                        continue
+                except Exception:
+                    continue
+
+                if not self._probe_ddc(bus):
+                    continue
+
+                product = self._read_edid_name(bus) or f'Unknown (i2c-{bus})'
+                result = self._vcp_get(bus, 0x10)  # brightness
+                if result is None:
+                    continue
+
+                bus_str = str(bus)
+                monitors[bus_str] = {
+                    'display_num': bus_str,
+                    'i2c_bus': bus_str,
+                    'model': product,
+                    'label': product,
+                    'backend': 'raw_ddc',
+                    'max_brightness': result[1],
+                    'brightness': result[0],
+                    'capabilities': {
+                        'features': {
+                            '10': {'name': 'Brightness', 'values': {}}
+                        }
+                    }
+                }
+                self.logger.info(f"Found unmapped DDC monitor on i2c-{bus}: {product}")
+        except Exception as e:
+            self.logger.debug(f"Unmapped monitor scan failed: {e}")
+
+        self.monitors.update(monitors)
+        return monitors
+
+    def get_brightness(self, bus_str: str) -> Optional[int]:
+        result = self._vcp_get(int(bus_str), 0x10)
+        return result[0] if result else None
+
+    def set_brightness(self, bus_str: str, brightness_percent: int) -> bool:
+        ok = self._vcp_set(int(bus_str), 0x10, brightness_percent)
+        if ok:
+            self.logger.info(f"Set VCP feature 10 to {brightness_percent} on bus {bus_str} (raw)")
+        return ok
+
+
 class DDCIMonitorControl:
     """DDC/CI Monitor Control System"""
     
@@ -221,7 +392,14 @@ class DDCIMonitorControl:
                 elif current_monitor and 'Monitor:' in line:
                     model_match = re.search(r'Monitor:\s*(.+)', line)
                     if model_match:
-                        monitors[current_monitor]['model'] = model_match.group(1).strip()
+                        model_raw = model_match.group(1).strip()
+                        monitors[current_monitor]['model'] = model_raw
+                        # Extract clean product name from "MFG:Product Name:Serial"
+                        parts = model_raw.split(':')
+                        if len(parts) >= 2 and parts[1].strip():
+                            monitors[current_monitor]['label'] = parts[1].strip()
+                        else:
+                            monitors[current_monitor]['label'] = model_raw
             
             # Get capabilities for each monitor
             for monitor_id, monitor_info in monitors.items():
@@ -436,6 +614,7 @@ class HybridMonitorControl:
     def __init__(self):
         self.kde = KDEScreenBrightness()
         self.ddc = DDCIMonitorControl()
+        self.raw_ddc = RawDDCIMonitorControl()
         self.monitors = {}
         self.setup_logging()
 
@@ -481,6 +660,14 @@ class HybridMonitorControl:
                 monitors[ddc_id] = ddc_info
                 monitors[ddc_id]['backend'] = 'ddc'
 
+        # Scan for unmapped monitors (DDC-capable but invisible to ddcutil)
+        known_buses = {m.get('i2c_bus') for m in monitors.values() if m.get('i2c_bus')}
+        raw_monitors = self.raw_ddc.detect_unmapped_monitors(known_buses)
+        for mid, minfo in raw_monitors.items():
+            monitors[mid] = minfo
+        if raw_monitors:
+            self.logger.info(f"Found {len(raw_monitors)} additional monitor(s) via raw I2C probe")
+
         self.monitors = monitors
         return monitors
 
@@ -495,7 +682,11 @@ class HybridMonitorControl:
         if monitor.get('backend') == 'kde':
             return self.kde.get_brightness(monitor_id)
 
-        # Fall back to DDC
+        # Raw DDC (unmapped monitors)
+        if monitor.get('backend') == 'raw_ddc':
+            return self.raw_ddc.get_brightness(monitor.get('i2c_bus', monitor_id))
+
+        # Fall back to ddcutil DDC
         bus = monitor.get('i2c_bus')
         if bus:
             return self.ddc.get_brightness(bus)
@@ -514,7 +705,11 @@ class HybridMonitorControl:
         if monitor.get('backend') == 'kde':
             return self.kde.set_brightness(monitor_id, brightness_percent)
 
-        # Fall back to DDC
+        # Raw DDC (unmapped monitors)
+        if monitor.get('backend') == 'raw_ddc':
+            return self.raw_ddc.set_brightness(monitor.get('i2c_bus', monitor_id), brightness_percent)
+
+        # Fall back to ddcutil DDC
         bus = monitor.get('i2c_bus')
         if bus:
             return self.ddc.set_brightness(bus, brightness_percent)
@@ -532,10 +727,12 @@ class HybridMonitorControl:
         if feature_code == '10':
             if monitor.get('backend') == 'kde':
                 return self.kde.set_brightness(monitor_id, value)
+            if monitor.get('backend') == 'raw_ddc':
+                return self.raw_ddc.set_brightness(monitor.get('i2c_bus', monitor_id), value)
 
         # For other VCP codes, use DDC if available
         bus = monitor.get('i2c_bus')
-        if bus:
+        if bus and monitor.get('backend') != 'raw_ddc':
             return self.ddc.set_vcp_value(bus, feature_code, value)
 
         # If no DDC but KDE and brightness, use KDE
@@ -556,9 +753,13 @@ class HybridMonitorControl:
         if feature_code == '10' and monitor.get('backend') == 'kde':
             return self.kde.get_brightness(monitor_id)
 
-        # For other VCP codes, use DDC
+        # Raw DDC
+        if feature_code == '10' and monitor.get('backend') == 'raw_ddc':
+            return self.raw_ddc.get_brightness(monitor.get('i2c_bus', monitor_id))
+
+        # For other VCP codes, use ddcutil DDC
         bus = monitor.get('i2c_bus')
-        if bus:
+        if bus and monitor.get('backend') != 'raw_ddc':
             return self.ddc.get_vcp_value(bus, feature_code)
 
         return None
