@@ -35,6 +35,16 @@
   </categories>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.7.1" date="2026-11-08">
+      <description>
+        <p>Fixes found by opening the packaged app.</p>
+        <ul>
+          <li>The packaged app runs on the system Python, so the Kirigami window opens even when another Python comes first on PATH.</li>
+          <li>The Auto Brightness switch label is readable on the dark theme.</li>
+          <li>Desktops match the window to its launcher icon.</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.7.0" date="2026-11-08">
       <description>
         <p>Renamed from Monitor Remote Control to DonutMonitorControl. The daemon now runs from the packaged systemd user unit, and the GUI and daemon share one config file.</p>

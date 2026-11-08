@@ -1,7 +1,7 @@
 # Maintainer: DonutsDelivery <megusta52@proton.me>
 pkgname=donutmonitorcontrol
-pkgver=2.7.0
-pkgrel=2
+pkgver=2.7.1
+pkgrel=1
 pkgdesc="Control monitor brightness, color and input over DDC/CI, with sun-based auto brightness"
 arch=('any')
 url="https://github.com/DonutsDelivery/Auto-Brightness"
