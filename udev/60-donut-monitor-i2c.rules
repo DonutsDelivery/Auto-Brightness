@@ -1,0 +1,4 @@
+# DonutMonitorControl: let the logged-in user and members of the i2c group talk
+# DDC/CI to monitors through /dev/i2c-*. ddcutil's own rule only covers GPU
+# adapters, so this one tags every i2c-dev node.
+SUBSYSTEM=="i2c-dev", KERNEL=="i2c-[0-9]*", TAG+="uaccess", GROUP="i2c", MODE="0660"

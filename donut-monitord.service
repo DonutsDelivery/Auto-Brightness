@@ -1,20 +1,18 @@
 [Unit]
-Description=Auto Brightness Service
+Description=DonutMonitorControl daemon (automatic monitor brightness)
 After=graphical-session.target
 Wants=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/auto-brightness
+ExecStart=/usr/bin/donut-monitord
 Restart=always
 RestartSec=30
 Environment=DISPLAY=:0
 
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=auto-brightness
-
-WorkingDirectory=/etc/auto-brightness
+SyslogIdentifier=donut-monitord
 
 [Install]
 WantedBy=default.target
