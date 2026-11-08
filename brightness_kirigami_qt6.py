@@ -42,6 +42,7 @@ from monitor_control import HybridMonitorControl, serialized_ddc_access
 from donut_monitor_common import (
     APP_ID, APP_NAME, SERVICE_UNIT, SHARE_DIR, resolve_config_path, i2c_access_problem,
 )
+from donut_background import BackgroundPortal, QtDBusTransport, in_sandbox
 
 class BrightnessController(QObject):
     """Backend controller for brightness and monitor management"""
@@ -78,6 +79,12 @@ class BrightnessController(QObject):
         self._cache_timer.timeout.connect(self._clear_value_cache)
         self._cache_timer.start(5000)  # Clear cache every 5 seconds
 
+        # In a Flatpak sandbox there is no systemd user manager, so ask the portal
+        # to allow background running and autostart of the daemon.
+        self._background_portal = None
+        if in_sandbox():
+            QTimer.singleShot(0, self.request_background)
+
         # Debounce timer for service restart (prevents rapid restarts during slider drag)
         self._restart_timer = QTimer()
         self._restart_timer.setSingleShot(True)
@@ -109,8 +116,31 @@ class BrightnessController(QObject):
         except Exception as e:
             self.statusChanged.emit(f"Error saving config: {e}", "error")
 
+    def request_background(self):
+        """Ask the desktop portal for background and autostart (sandbox only)"""
+        try:
+            self._background_portal = BackgroundPortal(QtDBusTransport())
+            self._background_portal.request(self._on_background_result)
+        except Exception as e:
+            self.statusChanged.emit(f"Could not ask for background access: {e}", "error")
+
+    def _on_background_result(self, result):
+        if result.status == "granted":
+            self.statusChanged.emit("Background access granted", "success")
+        elif result.status == "unavailable":
+            self.statusChanged.emit(
+                "No background portal on this desktop, so the daemon will not start at login", "error")
+        else:
+            self.statusChanged.emit(
+                f"Background access not granted ({result.detail}), so the daemon will not start at login",
+                "error")
+
     def restart_service(self):
         """Restart the donut-monitord user service to apply changes immediately"""
+        if in_sandbox():
+            # No systemctl in the sandbox. The daemon reloads its config every cycle.
+            self.statusChanged.emit("Saved. The daemon applies it at its next update", "success")
+            return
         try:
             subprocess.run(['systemctl', '--user', 'restart', SERVICE_UNIT],
                          check=True, capture_output=True)

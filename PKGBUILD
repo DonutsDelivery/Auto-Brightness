@@ -34,6 +34,7 @@ package() {
     local share="$pkgdir/usr/share/donut-monitor-control"
     install -Dm644 monitor_control.py "$share/monitor_control.py"
     install -Dm644 donut_monitor_common.py "$share/donut_monitor_common.py"
+    install -Dm644 donut_background.py "$share/donut_background.py"
     install -Dm644 brightness_kirigami_qt6.qml "$share/brightness_kirigami_qt6.qml"
 
     # System default config. The first run copies it to ~/.config/donut-monitor-control/.

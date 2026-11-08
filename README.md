@@ -62,7 +62,7 @@ Install `ddcutil`, Python 3 with `requests` and PyQt6, Qt 6 declarative and Kiri
 ```bash
 sudo install -Dm755 auto_brightness.py /usr/bin/donut-monitord
 sudo install -Dm755 brightness_kirigami_qt6.py /usr/bin/donut-monitor
-sudo install -Dm644 monitor_control.py donut_monitor_common.py brightness_kirigami_qt6.qml -t /usr/share/donut-monitor-control
+sudo install -Dm644 monitor_control.py donut_monitor_common.py donut_background.py brightness_kirigami_qt6.qml -t /usr/share/donut-monitor-control
 sudo install -Dm644 config.json /etc/donut-monitor-control/config.json
 sudo install -Dm644 donut-monitord.service /usr/lib/systemd/user/donut-monitord.service
 sudo install -Dm644 udev/60-donut-monitor-i2c.rules /usr/lib/udev/rules.d/60-donut-monitor-i2c.rules
@@ -80,6 +80,10 @@ systemctl --user enable --now donut-monitord.service
 The PNG icons in `data/icons/hicolor/` go to `/usr/share/icons/hicolor/<size>/apps/` the same way. If the rule does not give you access (for example when you are not on the active local seat), add yourself to the `i2c` group with `sudo usermod -aG i2c $USER` and log in again.
 
 The manual route has only been checked statically. Nobody has run it on Debian, Fedora or openSUSE.
+
+### Flatpak
+
+Inside a Flatpak sandbox there is no systemd user manager, so the GUI asks `org.freedesktop.portal.Background` for background and autostart instead, with `donut-monitord` as the command. The portal shows the permission prompt and writes the host autostart entry. Outside a sandbox (no `/.flatpak-info`) nothing changes: the package ships `donut-monitord.service` and you enable it with `systemctl --user`. There is no Flatpak manifest in this repository yet, so this path has only been tested against a stand-in portal service.
 
 ## Configuration
 
