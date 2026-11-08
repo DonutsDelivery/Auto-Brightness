@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from donut_monitor_common import resolve_config_path
 import tkinter as tk
 from tkinter import ttk
 import json
@@ -13,12 +14,12 @@ from plasma_theme import plasma_theme
 
 class BrightnessControlGUI:
     def __init__(self):
-        self.config_path = "/home/user/Documents/auto-brightness/config.json"
+        self.config_path = resolve_config_path()
         self.config = self.load_config()
         
         # Create main window
         self.root = tk.Tk()
-        self.root.title("*** ENHANCED INTERFACE v2.0 *** - Auto Brightness & Monitor Control")
+        self.root.title("DonutMonitorControl (legacy Tk interface)")
         self.root.geometry("900x650")
         self.root.resizable(True, True)
         
@@ -259,7 +260,7 @@ class BrightnessControlGUI:
     
     def _restart_service_thread(self):
         try:
-            subprocess.run(['systemctl', '--user', 'restart', 'auto-brightness.service'], 
+            subprocess.run(['systemctl', '--user', 'restart', 'donut-monitord.service'], 
                          check=True, capture_output=True)
             
             # Update status on main thread with theme colors

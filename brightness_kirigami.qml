@@ -6,7 +6,7 @@ import BrightnessControl 1.0
 
 Kirigami.ApplicationWindow {
     id: root
-    title: "Auto Brightness & Monitor Control"
+    title: "DonutMonitorControl"
     width: 900
     height: 650
     
@@ -456,15 +456,15 @@ Kirigami.ApplicationWindow {
     Kirigami.AboutPage {
         id: aboutDialog
         aboutData: {
-            "displayName": "Auto Brightness & Monitor Control",
-            "productName": "brightness-control",
+            "displayName": "DonutMonitorControl",
+            "productName": "donut-monitor-control",
             "version": "2.0",
             "shortDescription": "Automatic brightness control and comprehensive monitor management",
             "homepage": "",
             "bugAddress": "",
             "authors": [
                 {
-                    "name": "Auto Brightness Team",
+                    "name": "DonutsDelivery",
                     "emailAddress": "",
                 }
             ],

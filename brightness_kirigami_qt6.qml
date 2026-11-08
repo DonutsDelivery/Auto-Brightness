@@ -6,7 +6,7 @@ import BrightnessControl 1.0
 
 Kirigami.ApplicationWindow {
     id: root
-    title: "Monitor Remote Control"
+    title: "DonutMonitorControl"
     width: 900
     height: 700
     minimumWidth: 800
@@ -88,7 +88,7 @@ Kirigami.ApplicationWindow {
     }
     
     pageStack.initialPage: Kirigami.Page {
-        title: "Monitor Remote Control"
+        title: "DonutMonitorControl"
         padding: 0
         
         Rectangle {
@@ -812,8 +812,11 @@ Kirigami.ApplicationWindow {
                                             Layout.fillWidth: true
                                             Layout.alignment: Qt.AlignHCenter
                                             visible: controller.monitors.length === 0
-                                            text: "No monitors detected. Click Refresh to scan."
-                                            color: "#4c566a"
+                                            text: controller.i2cProblem !== ""
+                                                  ? controller.i2cProblem
+                                                  : "No monitors detected. Click Refresh to scan."
+                                            wrapMode: Text.WordWrap
+                                            color: controller.i2cProblem !== "" ? "#bf616a" : "#4c566a"
                                             font.italic: true
                                             horizontalAlignment: Text.AlignHCenter
                                         }
@@ -995,7 +998,7 @@ Kirigami.ApplicationWindow {
                                             }
 
                                             Label {
-                                                text: "Restart auto brightness service to apply changes"
+                                                text: "Restart the donut-monitord service to apply changes"
                                                 color: "#d8dee9"
                                                 font.pointSize: 10
                                             }

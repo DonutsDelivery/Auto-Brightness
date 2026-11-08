@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from donut_monitor_common import resolve_config_path
 import tkinter as tk
 from tkinter import ttk
 import json
@@ -16,7 +17,7 @@ except ImportError:
 
 class BrightnessTray:
     def __init__(self):
-        self.config_path = "/home/user/Documents/auto-brightness/config.json"
+        self.config_path = resolve_config_path()
         self.config = self.load_config()
         self.settings_window = None
         
@@ -73,9 +74,9 @@ class BrightnessTray:
         ]
         
         self.tray_icon = pystray.Icon(
-            "auto_brightness",
+            "donut_monitor",
             icon_image,
-            "Auto Brightness Control",
+            "DonutMonitorControl",
             pystray.Menu(*menu_items)
         )
     
@@ -201,7 +202,7 @@ class BrightnessTray:
     
     def _restart_service_thread(self):
         try:
-            subprocess.run(['systemctl', '--user', 'restart', 'auto-brightness.service'], 
+            subprocess.run(['systemctl', '--user', 'restart', 'donut-monitord.service'], 
                          check=True, capture_output=True)
             
             if hasattr(self, 'status_label') and self.settings_window:

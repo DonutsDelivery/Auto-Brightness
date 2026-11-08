@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CONFIG_FILE="/home/user/Documents/auto-brightness/config.json"
+CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/donut-monitor-control/config.json"
 
 case "$1" in
     "get_config")
@@ -12,15 +12,15 @@ case "$1" in
         ;;
     "set_config")
         echo "$2" > "$CONFIG_FILE"
-        systemctl --user restart auto-brightness.service
+        systemctl --user restart donut-monitord.service
         echo "Config updated and service restarted"
         ;;
     "restart_service")
-        systemctl --user restart auto-brightness.service
+        systemctl --user restart donut-monitord.service
         echo "Service restarted"
         ;;
     "check_service")
-        if systemctl --user is-active --quiet auto-brightness.service; then
+        if systemctl --user is-active --quiet donut-monitord.service; then
             echo "active"
         else
             echo "inactive"

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
+from donut_monitor_common import resolve_config_path
 import sys
 import json
 import os
 
 def update_config(config_json):
-    config_path = "/home/user/Documents/auto-brightness/config.json"
+    config_path = resolve_config_path()
     try:
         config = json.loads(config_json)
         with open(config_path, 'w') as f:

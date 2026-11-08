@@ -65,8 +65,8 @@ def fallback_tkinter_launch():
 
 def main():
     """Main launcher with fallback support"""
-    print("Auto Brightness & Monitor Control Launcher")
-    print("==========================================")
+    print("DonutMonitorControl Launcher")
+    print("============================")
     
     # Try Kirigami first
     if try_kirigami_launch():

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from donut_monitor_common import resolve_config_path
 import tkinter as tk
 from tkinter import ttk
 import json
@@ -10,7 +11,7 @@ from pathlib import Path
 
 class BrightnessPanelWidget:
     def __init__(self):
-        self.config_path = "/home/user/Documents/auto-brightness/config.json"
+        self.config_path = resolve_config_path()
         self.config = self.load_config()
         
         # Create a small floating panel widget
@@ -208,7 +209,7 @@ class BrightnessPanelWidget:
     
     def _restart_service_thread(self):
         try:
-            subprocess.run(['systemctl', '--user', 'restart', 'auto-brightness.service'], 
+            subprocess.run(['systemctl', '--user', 'restart', 'donut-monitord.service'], 
                          check=True, capture_output=True)
             
             if hasattr(self, 'status_label'):

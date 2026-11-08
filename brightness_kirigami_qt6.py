@@ -7,8 +7,12 @@ import threading
 import time
 import subprocess
 
+# Installed copies live in /usr/bin; the shared modules live in /usr/share/donut-monitor-control.
+_SHARE_DIR = "/usr/share/donut-monitor-control"
+if os.path.isdir(_SHARE_DIR) and _SHARE_DIR not in sys.path:
+    sys.path.append(_SHARE_DIR)
+
 # Set environment variables for Qt6 and GPU acceleration
-os.environ['QT_QPA_PLATFORM'] = 'xcb'
 # Enable hardware acceleration - remove software rendering for GPU acceleration
 os.environ['QSG_RHI_BACKEND'] = 'opengl'  # Use OpenGL for GPU acceleration
 os.environ['QSG_RHI_DEBUG_LAYER'] = '0'  # Disable debug layer for performance
@@ -35,6 +39,9 @@ except ImportError:
     QT_VERSION = 5
 
 from monitor_control import HybridMonitorControl
+from donut_monitor_common import (
+    APP_ID, APP_NAME, SERVICE_UNIT, SHARE_DIR, resolve_config_path, i2c_access_problem,
+)
 
 class BrightnessController(QObject):
     """Backend controller for brightness and monitor management"""
@@ -46,12 +53,9 @@ class BrightnessController(QObject):
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        # Try local config first, then system config
-        local_config = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
-        if os.path.exists(local_config):
-            self.config_path = local_config
-        else:
-            self.config_path = "/etc/monitor-remote-control/config.json"
+        # Same file the daemon reads: per-user config, seeded from /etc/donut-monitor-control
+        self.config_path = resolve_config_path()
+        self._i2c_problem = ""
         self._config = self.load_config()
         self.monitor_control = HybridMonitorControl()
         self._monitors = {}
@@ -103,9 +107,9 @@ class BrightnessController(QObject):
             self.statusChanged.emit(f"Error saving config: {e}", "error")
 
     def restart_service(self):
-        """Restart the auto-brightness service to apply changes immediately"""
+        """Restart the donut-monitord user service to apply changes immediately"""
         try:
-            subprocess.run(['systemctl', '--user', 'restart', 'auto-brightness.service'],
+            subprocess.run(['systemctl', '--user', 'restart', SERVICE_UNIT],
                          check=True, capture_output=True)
             self.statusChanged.emit("Service restarted", "success")
         except subprocess.CalledProcessError as e:
@@ -227,6 +231,11 @@ class BrightnessController(QObject):
         return list(self._monitors.values())
     
     @pyqtProperty(str, notify=monitorsChanged)
+    def i2cProblem(self):
+        """Explanation and fix command when /dev/i2c-* is missing or not accessible, else empty"""
+        return self._i2c_problem
+
+    @pyqtProperty(str, notify=monitorsChanged)
     def currentMonitor(self):
         return self._current_monitor or ""
     
@@ -340,7 +349,7 @@ class BrightnessController(QObject):
         def restart_thread():
             try:
                 import subprocess
-                subprocess.run(['systemctl', '--user', 'restart', 'auto-brightness.service'],
+                subprocess.run(['systemctl', '--user', 'restart', SERVICE_UNIT],
                              check=True, capture_output=True)
                 self.statusChanged.emit("Brightness updated!", "success")
             except subprocess.CalledProcessError as e:
@@ -598,6 +607,12 @@ class BrightnessController(QObject):
             monitors_data = self.monitor_control.detect_monitors()
             self._monitors = {}
 
+            # Explain an unusable /dev/i2c-* instead of showing an empty list
+            problem = i2c_access_problem() if not monitors_data else None
+            if problem and problem != self._i2c_problem:
+                self.statusChanged.emit(problem, "error")
+            self._i2c_problem = problem or ""
+
             for display_id, monitor_info in monitors_data.items():
                 bus = monitor_info.get('i2c_bus')
                 # Use label if available (from KDE), otherwise model
@@ -637,13 +652,13 @@ class BrightnessController(QObject):
     
     @pyqtSlot()
     def restartService(self):
-        """Restart the auto-brightness service"""
+        """Restart the donut-monitord user service"""
         self.statusChanged.emit("Restarting service...", "info")
         
         def restart_thread():
             try:
                 import subprocess
-                subprocess.run(['systemctl', '--user', 'restart', 'auto-brightness.service'], 
+                subprocess.run(['systemctl', '--user', 'restart', SERVICE_UNIT], 
                              check=True, capture_output=True)
                 self.statusChanged.emit("Service restarted successfully!", "success")
             except subprocess.CalledProcessError as e:
@@ -927,13 +942,14 @@ def main():
     
     # Prevent rendering issues and ensure proper initialization
     os.environ['QSG_INFO'] = '0'  # Reduce Qt scene graph debug output
-    os.environ['QT_QPA_PLATFORM'] = 'xcb'  # Force X11 backend for stability
     os.environ['QT_QUICK_BACKEND'] = 'software'  # Use software rendering for reliability
     os.environ['QSG_RENDER_LOOP'] = 'basic'  # Use basic render loop to prevent transparency issues
     
     app = QApplication(sys.argv)
-    app.setApplicationName("Monitor Remote Control")
-    app.setOrganizationName("MonitorRemoteControl")
+    app.setApplicationName(APP_NAME)
+    app.setOrganizationName("DonutsDelivery")
+    app.setOrganizationDomain("donutsdelivery.online")
+    app.setDesktopFileName(APP_ID)
     
     # Enable high DPI scaling for crisp graphics on modern displays
     if QT_VERSION == 6:
@@ -954,7 +970,7 @@ def main():
     # Check if another instance is already running
     import socket
     
-    lock_file = f"/tmp/monitor-remote-control-gui-{os.getuid()}.lock"
+    lock_file = f"/tmp/donut-monitor-gui-{os.getuid()}.lock"
     
     try:
         # Try to create a lock socket
@@ -979,7 +995,7 @@ def main():
             test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
             test_socket.connect(lock_file)
             test_socket.close()
-            print("Another instance of Auto Brightness & Monitor Control is already running.")
+            print("Another instance of DonutMonitorControl is already running.")
             return 1
         except socket.error:
             # Lock file exists but no process is bound to it - remove stale lock
@@ -1036,7 +1052,7 @@ def main():
     # Load the QML file - check multiple locations
     qml_file_locations = [
         os.path.join(os.path.dirname(__file__), "brightness_kirigami_qt6.qml"),  # Development location
-        "/usr/share/monitor-remote-control/brightness_kirigami_qt6.qml",  # Installed location
+        os.path.join(SHARE_DIR, "brightness_kirigami_qt6.qml"),  # Installed location
     ]
     
     qml_file = None

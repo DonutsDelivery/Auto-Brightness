@@ -11,6 +11,15 @@ import sys
 import os
 import re
 
+# Installed copies live in /usr/bin; the shared modules live in /usr/share/donut-monitor-control.
+_SHARE_DIR = "/usr/share/donut-monitor-control"
+if os.path.isdir(_SHARE_DIR) and _SHARE_DIR not in sys.path:
+    sys.path.append(_SHARE_DIR)
+
+from donut_monitor_common import resolve_config_path, qdbus_binary
+
+QDBUS = qdbus_binary()
+
 # Import the hybrid monitor control for KDE + DDC support
 try:
     from monitor_control import HybridMonitorControl
@@ -22,12 +31,8 @@ except ImportError:
 class AutoBrightnessService:
     def __init__(self, config_path=None):
         if config_path is None:
-            # Try local config first, then system config
-            local_config = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
-            if os.path.exists(local_config):
-                config_path = local_config
-            else:
-                config_path = "/etc/auto-brightness/config.json"
+            # Same file the GUI edits: per-user config, seeded from /etc/donut-monitor-control
+            config_path = resolve_config_path()
         self.config_path = config_path
         self.config = self.load_config()
         self.setup_logging()
@@ -63,9 +68,9 @@ class AutoBrightnessService:
         try:
             result = subprocess.run(
                 ['gdbus', 'call', '--session',
-                 '--dest', 'org.auto_brightness.FullscreenMonitor',
-                 '--object-path', '/org/auto_brightness/FullscreenMonitor',
-                 '--method', 'org.auto_brightness.FullscreenMonitor.GetFullscreenMonitors'],
+                 '--dest', 'online.donutsdelivery.DonutMonitorControl.FullscreenMonitor',
+                 '--object-path', '/online/donutsdelivery/DonutMonitorControl/FullscreenMonitor',
+                 '--method', 'online.donutsdelivery.DonutMonitorControl.FullscreenMonitor.GetFullscreenMonitors'],
                 capture_output=True, text=True, timeout=2
             )
             if result.returncode == 0:
@@ -83,7 +88,7 @@ class AutoBrightnessService:
         # Fall back to KWin for KDE
         try:
             result = subprocess.run(
-                ['qdbus', '--literal', 'org.kde.KWin', '/WindowsRunner', 'org.kde.krunner1.Match', ''],
+                [QDBUS, '--literal', 'org.kde.KWin', '/WindowsRunner', 'org.kde.krunner1.Match', ''],
                 capture_output=True, text=True, timeout=3
             )
             if result.returncode != 0:
@@ -98,7 +103,7 @@ class AutoBrightnessService:
             for uuid in window_uuids:
                 try:
                     info_result = subprocess.run(
-                        ['qdbus', 'org.kde.KWin', '/KWin', 'org.kde.KWin.getWindowInfo', f'{{{uuid}}}'],
+                        [QDBUS, 'org.kde.KWin', '/KWin', 'org.kde.KWin.getWindowInfo', f'{{{uuid}}}'],
                         capture_output=True, text=True, timeout=1
                     )
                     if info_result.returncode != 0:
@@ -158,7 +163,7 @@ class AutoBrightnessService:
                     # Extract display number from kde_N
                     display_num = kde_id.replace('kde_', '')
                     result = subprocess.run(
-                        ['qdbus', 'org.kde.ScreenBrightness',
+                        [QDBUS, 'org.kde.ScreenBrightness',
                          f'/org/kde/ScreenBrightness/display{display_num}',
                          'org.freedesktop.DBus.Properties.Get',
                          'org.kde.ScreenBrightness.Display', 'Label'],
@@ -654,7 +659,7 @@ class AutoBrightnessService:
             logging.error(f"Failed to set brightness for display {display}: {e}")
     
     def run(self):
-        logging.info("Starting Auto Brightness Service")
+        logging.info("Starting DonutMonitorControl daemon (donut-monitord)")
         
         # Check if auto brightness is enabled
         if not self.config.get("auto_brightness_enabled", True):

@@ -4,7 +4,16 @@ import subprocess
 import json
 import logging
 import re
+import os
+import sys
 from typing import Dict, List, Optional, Tuple, Any
+
+# Installed copies live in /usr/share/donut-monitor-control; make the shared module importable
+# when this file is imported from a script in /usr/bin.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from donut_monitor_common import qdbus_binary
+
+QDBUS = qdbus_binary()
 
 
 class KDEScreenBrightness:
@@ -33,7 +42,7 @@ class KDEScreenBrightness:
     def _call_dbus(self, display_index: int, method: str, *args) -> Optional[str]:
         """Call a DBus method on a display"""
         path = f"{self.DBUS_PATH_PREFIX}{display_index}"
-        cmd = ['qdbus', self.DBUS_SERVICE, path, method] + [str(a) for a in args]
+        cmd = [QDBUS, self.DBUS_SERVICE, path, method] + [str(a) for a in args]
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
@@ -46,7 +55,7 @@ class KDEScreenBrightness:
     def _get_property(self, display_index: int, property_name: str) -> Optional[str]:
         """Get a DBus property from a display"""
         path = f"{self.DBUS_PATH_PREFIX}{display_index}"
-        cmd = ['qdbus', self.DBUS_SERVICE, path,
+        cmd = [QDBUS, self.DBUS_SERVICE, path,
                'org.freedesktop.DBus.Properties.Get',
                self.DBUS_INTERFACE, property_name]
         try:
@@ -62,7 +71,7 @@ class KDEScreenBrightness:
         """Check if KDE ScreenBrightness interface is available"""
         try:
             result = subprocess.run(
-                ['qdbus', self.DBUS_SERVICE, self.DBUS_PATH, 'org.kde.ScreenBrightness.DisplaysDBusNames'],
+                [QDBUS, self.DBUS_SERVICE, self.DBUS_PATH, 'org.kde.ScreenBrightness.DisplaysDBusNames'],
                 capture_output=True, text=True, timeout=5
             )
             return result.returncode == 0 and result.stdout.strip()
@@ -73,7 +82,7 @@ class KDEScreenBrightness:
         """Get list of display names from KDE ScreenBrightness"""
         try:
             result = subprocess.run(
-                ['qdbus', self.DBUS_SERVICE, self.DBUS_PATH, 'org.kde.ScreenBrightness.DisplaysDBusNames'],
+                [QDBUS, self.DBUS_SERVICE, self.DBUS_PATH, 'org.kde.ScreenBrightness.DisplaysDBusNames'],
                 capture_output=True, text=True, timeout=5
             )
             if result.returncode == 0:
@@ -152,7 +161,7 @@ class KDEScreenBrightness:
         # Call SetBrightness(int brightness, uint flags)
         # flags=0 means normal brightness change
         path = f"{self.DBUS_PATH_PREFIX}{kde_index}"
-        cmd = ['qdbus', self.DBUS_SERVICE, path,
+        cmd = [QDBUS, self.DBUS_SERVICE, path,
                f'{self.DBUS_INTERFACE}.SetBrightness',
                str(brightness_value), '0']
 

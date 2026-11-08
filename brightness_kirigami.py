@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from donut_monitor_common import resolve_config_path
 import sys
 import os
 import json
@@ -20,7 +21,7 @@ class BrightnessController(QObject):
     
     def __init__(self):
         super().__init__()
-        self.config_path = "/home/user/Documents/auto-brightness/config.json"
+        self.config_path = resolve_config_path()
         self._config = self.load_config()
         self.monitor_control = DDCIMonitorControl()
         self._monitors = {}
@@ -125,7 +126,7 @@ class BrightnessController(QObject):
         def restart_service():
             try:
                 import subprocess
-                subprocess.run(['systemctl', '--user', 'restart', 'auto-brightness.service'], 
+                subprocess.run(['systemctl', '--user', 'restart', 'donut-monitord.service'], 
                              check=True, capture_output=True)
                 self.statusChanged.emit("Settings applied successfully!", "success")
             except subprocess.CalledProcessError:
@@ -207,9 +208,9 @@ class BrightnessController(QObject):
 
 def main():
     app = QApplication(sys.argv)
-    app.setApplicationName("Auto Brightness & Monitor Control")
-    app.setOrganizationName("KDE")
-    app.setOrganizationDomain("kde.org")
+    app.setApplicationName("DonutMonitorControl")
+    app.setOrganizationName("DonutsDelivery")
+    app.setOrganizationDomain("donutsdelivery.online")
     
     # Register Python types for QML
     qmlRegisterType(BrightnessController, "BrightnessControl", 1, 0, "BrightnessController")
