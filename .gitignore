@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.claude/settings.local.json
+aur-package/
+.beads/daemon-error
+.beads/.local_version

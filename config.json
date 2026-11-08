@@ -1,7 +1,7 @@
 {
   "latitude": 56.4607,
   "longitude": 10.03639,
-  "min_brightness": 0.4647727272727273,
+  "min_brightness": 0.8,
   "max_brightness": 1.0,
   "update_interval": 300,
   "displays": [],
@@ -10,7 +10,11 @@
   "monitor_offsets": {
     "Dell Inc. DELL P2418D": -30,
     "C27ATILIUSX1-": 0,
-    "C27ATILIUSX1": -15
+    "C27ATILIUSX1": 50,
+    "XF270HU": 50,
+    "DELL P2418D": 50,
+    "PHL 245E1": 50
   },
-  "fullscreen_brightness_enabled": true
+  "fullscreen_brightness_enabled": true,
+  "use_elevation_scaling": false
 }

@@ -1,0 +1,1653 @@
+import QtQuick 2.15
+import QtQuick.Controls 2.15
+import QtQuick.Layouts 1.15
+import org.kde.kirigami 2.19 as Kirigami
+import BrightnessControl 1.0
+
+Kirigami.ApplicationWindow {
+    id: root
+    title: "Auto Brightness & Monitor Control"
+    width: 900
+    height: 700
+    minimumWidth: 800
+    minimumHeight: 600
+    maximumWidth: 1200
+    maximumHeight: 900
+    color: "#2e3440"
+    
+    BrightnessController {
+        id: controller
+        
+        onStatusChanged: function(message, type) {
+            showPassiveNotification(message)
+        }
+    }
+    
+    pageStack.initialPage: Kirigami.Page {
+        title: "Auto Brightness & Monitor Control"
+        padding: 0
+        
+        Rectangle {
+            anchors.fill: parent
+            color: "#3b4252"
+            
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: Kirigami.Units.largeSpacing * 2
+                spacing: Kirigami.Units.largeSpacing
+            
+                // Header
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 80
+                    color: "#434c5e"
+                    radius: 12
+                    border.color: "#5e81ac"
+                    border.width: 1
+                    
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.margins: Kirigami.Units.largeSpacing
+                        
+                        Label {
+                            text: "🌟 Auto Brightness & Monitor Control"
+                            font.bold: true
+                            font.pointSize: 16
+                            color: "#eceff4"
+                        }
+                        
+                        Item { Layout.fillWidth: true }
+                        
+                        Rectangle {
+                            Layout.preferredWidth: 120
+                            Layout.preferredHeight: 30
+                            color: controller.autoBrightnessEnabled ? "#a3be8c" : "#bf616a"
+                            radius: 15
+                            
+                            Label {
+                                anchors.centerIn: parent
+                                text: controller.autoBrightnessEnabled ? "ENABLED" : "DISABLED"
+                                color: "#2e3440"
+                                font.bold: true
+                                font.pointSize: 10
+                            }
+                        }
+                    }
+                }
+                
+                // Tab Bar with rounded container
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 50
+                    Layout.topMargin: Kirigami.Units.smallSpacing
+                    color: "#434c5e"
+                    radius: 8
+                    border.color: "#5e81ac"
+                    border.width: 1
+                    
+                    TabBar {
+                        id: tabBar
+                        anchors.fill: parent
+                        anchors.margins: 4
+                        background: Rectangle { color: "transparent" }
+                        
+                        TabButton {
+                            text: "Auto Brightness"
+                            background: Rectangle {
+                                color: parent.checked ? "#5e81ac" : "transparent"
+                                radius: 6
+                            }
+                        }
+                        TabButton {
+                            text: "Location"
+                            background: Rectangle {
+                                color: parent.checked ? "#5e81ac" : "transparent"
+                                radius: 6
+                            }
+                        }
+                        TabButton {
+                            text: "Monitor Control"
+                            visible: controller.monitors.length > 0
+                            background: Rectangle {
+                                color: parent.checked ? "#5e81ac" : "transparent"
+                                radius: 6
+                            }
+                        }
+                        TabButton {
+                            text: "Advanced"
+                            visible: controller.monitors.length > 0 && controller.currentMonitorCapabilities.length > 0
+                            background: Rectangle {
+                                color: parent.checked ? "#5e81ac" : "transparent"
+                                radius: 6
+                            }
+                        }
+                    }
+                }
+            
+                // Tab Content Container
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.topMargin: Kirigami.Units.smallSpacing
+                    color: "#434c5e"
+                    radius: 12
+                    border.color: "#5e81ac"
+                    border.width: 1
+                    
+                    StackLayout {
+                        anchors.fill: parent
+                        anchors.margins: Kirigami.Units.largeSpacing
+                        currentIndex: tabBar.currentIndex
+                
+                        // Auto Brightness Tab
+                        ScrollView {
+                            clip: true
+                            ScrollBar.vertical.policy: ScrollBar.AsNeeded
+                            ScrollBar.horizontal.policy: ScrollBar.AsNeeded
+                            
+                            ColumnLayout {
+                                width: parent.parent.width - 40
+                                spacing: Kirigami.Units.largeSpacing * 1.5
+                                
+                                // Main Control Card
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 120
+                                    color: "#3b4252"
+                                    radius: 12
+                                    border.color: controller.autoBrightnessEnabled ? "#a3be8c" : "#bf616a"
+                                    border.width: 2
+                                    
+                                    ColumnLayout {
+                                        anchors.fill: parent
+                                        anchors.margins: Kirigami.Units.largeSpacing * 1.5
+                                        spacing: Kirigami.Units.largeSpacing
+                                        
+                                        Switch {
+                                            Layout.alignment: Qt.AlignHCenter
+                                            text: "Auto Brightness"
+                                            checked: controller.autoBrightnessEnabled
+                                            onToggled: controller.autoBrightnessEnabled = checked
+                                            font.pointSize: 14
+                                            font.bold: true
+                                        }
+                                        
+                                        Label {
+                                            Layout.alignment: Qt.AlignHCenter
+                                            text: controller.autoBrightnessEnabled ? 
+                                                  "Automatically adjusting " + controller.monitors.length + " monitors" :
+                                                  "Manual brightness control"
+                                            color: "#d8dee9"
+                                            font.italic: true
+                                        }
+                                    }
+                                }
+                        
+                                // Brightness Range Controls
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Kirigami.Units.largeSpacing
+                                    
+                                    // Night brightness
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 160
+                                        color: "#3b4252"
+                                        radius: 10
+                                        border.color: "#81a1c1"
+                                        border.width: 1
+                                        
+                                        ColumnLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: Kirigami.Units.largeSpacing
+                                            spacing: Kirigami.Units.largeSpacing
+                                            
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                
+                                                Label {
+                                                    text: "🌙"
+                                                    font.pointSize: 20
+                                                }
+                                                
+                                                Label {
+                                                    text: "Night Brightness"
+                                                    font.bold: true
+                                                    font.pointSize: 12
+                                                    color: "#eceff4"
+                                                }
+                                                
+                                                Item { Layout.fillWidth: true }
+                                                
+                                                Label {
+                                                    text: Math.round(minSlider.value) + "%"
+                                                    font.bold: true
+                                                    font.pointSize: 16
+                                                    color: "#81a1c1"
+                                                }
+                                            }
+                                            
+                                            Slider {
+                                                id: minSlider
+                                                Layout.fillWidth: true
+                                                from: 5
+                                                to: 80
+                                                value: controller.minBrightness
+                                                onPressedChanged: if (!pressed) controller.minBrightness = value
+                                                
+                                                background: Rectangle {
+                                                    x: minSlider.leftPadding
+                                                    y: minSlider.topPadding + minSlider.availableHeight / 2 - height / 2
+                                                    implicitWidth: 200
+                                                    implicitHeight: 4
+                                                    width: minSlider.availableWidth
+                                                    height: implicitHeight
+                                                    radius: 2
+                                                    color: "#4c566a"
+                                                    
+                                                    Rectangle {
+                                                        width: minSlider.visualPosition * parent.width
+                                                        height: parent.height
+                                                        color: "#81a1c1"
+                                                        radius: 2
+                                                    }
+                                                }
+                                                
+                                                handle: Rectangle {
+                                                    x: minSlider.leftPadding + minSlider.visualPosition * (minSlider.availableWidth - width)
+                                                    y: minSlider.topPadding + minSlider.availableHeight / 2 - height / 2
+                                                    implicitWidth: 20
+                                                    implicitHeight: 20
+                                                    radius: 10
+                                                    color: minSlider.pressed ? "#5e81ac" : "#81a1c1"
+                                                    border.color: "#eceff4"
+                                                    border.width: 2
+                                                }
+                                            }
+                                            
+                                            Label {
+                                                Layout.alignment: Qt.AlignHCenter
+                                                text: "When the sun is down"
+                                                color: "#d8dee9"
+                                                font.italic: true
+                                                font.pointSize: 10
+                                            }
+                                        }
+                                    }
+                        
+                                    // Day brightness
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 160
+                                        color: "#3b4252"
+                                        radius: 10
+                                        border.color: "#d08770"
+                                        border.width: 1
+                                        
+                                        ColumnLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: Kirigami.Units.largeSpacing
+                                            spacing: Kirigami.Units.largeSpacing
+                                            
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                
+                                                Label {
+                                                    text: "☀️"
+                                                    font.pointSize: 20
+                                                }
+                                                
+                                                Label {
+                                                    text: "Day Brightness"
+                                                    font.bold: true
+                                                    font.pointSize: 12
+                                                    color: "#eceff4"
+                                                }
+                                                
+                                                Item { Layout.fillWidth: true }
+                                                
+                                                Label {
+                                                    text: Math.round(maxSlider.value) + "%"
+                                                    font.bold: true
+                                                    font.pointSize: 16
+                                                    color: "#d08770"
+                                                }
+                                            }
+                                            
+                                            Slider {
+                                                id: maxSlider
+                                                Layout.fillWidth: true
+                                                from: 50
+                                                to: 100
+                                                value: controller.maxBrightness
+                                                onPressedChanged: if (!pressed) controller.maxBrightness = value
+                                                
+                                                background: Rectangle {
+                                                    x: maxSlider.leftPadding
+                                                    y: maxSlider.topPadding + maxSlider.availableHeight / 2 - height / 2
+                                                    implicitWidth: 200
+                                                    implicitHeight: 4
+                                                    width: maxSlider.availableWidth
+                                                    height: implicitHeight
+                                                    radius: 2
+                                                    color: "#4c566a"
+                                                    
+                                                    Rectangle {
+                                                        width: maxSlider.visualPosition * parent.width
+                                                        height: parent.height
+                                                        color: "#d08770"
+                                                        radius: 2
+                                                    }
+                                                }
+                                                
+                                                handle: Rectangle {
+                                                    x: maxSlider.leftPadding + maxSlider.visualPosition * (maxSlider.availableWidth - width)
+                                                    y: maxSlider.topPadding + maxSlider.availableHeight / 2 - height / 2
+                                                    implicitWidth: 20
+                                                    implicitHeight: 20
+                                                    radius: 10
+                                                    color: maxSlider.pressed ? "#bf616a" : "#d08770"
+                                                    border.color: "#eceff4"
+                                                    border.width: 2
+                                                }
+                                            }
+                                            
+                                            Label {
+                                                Layout.alignment: Qt.AlignHCenter
+                                                text: "When the sun is up"
+                                                color: "#d8dee9"
+                                                font.italic: true
+                                                font.pointSize: 10
+                                            }
+                                        }
+                                    }
+                                }
+                        
+                                // Service Control
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 80
+                                    Layout.topMargin: Kirigami.Units.largeSpacing
+                                    color: "#3b4252"
+                                    radius: 10
+                                    border.color: "#a3be8c"
+                                    border.width: 1
+                                    
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.margins: Kirigami.Units.largeSpacing
+                                        spacing: Kirigami.Units.largeSpacing
+                                        
+                                        Label {
+                                            text: "🔄"
+                                            font.pointSize: 24
+                                        }
+                                        
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 0
+                                            
+                                            Label {
+                                                text: "Service Control"
+                                                font.bold: true
+                                                font.pointSize: 12
+                                                color: "#eceff4"
+                                            }
+                                            
+                                            Label {
+                                                text: "Restart auto brightness service to apply changes"
+                                                color: "#d8dee9"
+                                                font.pointSize: 10
+                                            }
+                                        }
+                                        
+                                        Button {
+                                            text: "Restart"
+                                            onClicked: controller.restartService()
+                                            highlighted: true
+                                            Layout.preferredWidth: 100
+                                            Layout.preferredHeight: 40
+                                        }
+                                    }
+                                }
+                                
+                                Item { Layout.fillHeight: true }
+                            }
+                        }
+                
+                        // Location Tab
+                        ScrollView {
+                            clip: true
+                            ScrollBar.vertical.policy: ScrollBar.AsNeeded
+                            ScrollBar.horizontal.policy: ScrollBar.AsNeeded
+                            
+                            ColumnLayout {
+                                width: parent.parent.width - 40
+                                spacing: Kirigami.Units.largeSpacing * 1.5
+                                
+                                // Location Status Card
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 100
+                                    color: "#3b4252"
+                                    radius: 12
+                                    border.color: controller.locationOverride ? "#ebcb8b" : "#a3be8c"
+                                    border.width: 2
+                                    
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.margins: Kirigami.Units.largeSpacing
+                                        
+                                        Label {
+                                            text: "🌍"
+                                            font.pointSize: 32
+                                        }
+                                        
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: Kirigami.Units.smallSpacing
+                                            
+                                            Label {
+                                                text: controller.locationOverride ? "Manual Location" : "Auto Location"
+                                                font.bold: true
+                                                font.pointSize: 14
+                                                color: "#eceff4"
+                                            }
+                                            
+                                            Label {
+                                                text: controller.latitude.toFixed(2) + ", " + controller.longitude.toFixed(2)
+                                                color: "#d8dee9"
+                                                font.family: "monospace"
+                                                font.pointSize: 11
+                                            }
+                                        }
+                                        
+                                        Switch {
+                                            text: "Manual"
+                                            checked: controller.locationOverride
+                                            Layout.alignment: Qt.AlignVCenter
+                                        }
+                                    }
+                                }
+                        
+                                // City lookup
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 140
+                                    color: "#3b4252"
+                                    radius: 10
+                                    border.color: "#88c0d0"
+                                    border.width: 1
+                                    
+                                    ColumnLayout {
+                                        anchors.fill: parent
+                                        anchors.margins: Kirigami.Units.largeSpacing
+                                        spacing: Kirigami.Units.largeSpacing
+                                        
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            
+                                            Label {
+                                                text: "🏙️"
+                                                font.pointSize: 20
+                                            }
+                                            
+                                            Label {
+                                                text: "City Lookup"
+                                                font.bold: true
+                                                font.pointSize: 12
+                                                color: "#eceff4"
+                                            }
+                                            
+                                            Item { Layout.fillWidth: true }
+                                        }
+                                        
+                                        Label {
+                                            text: "Enter your city name to automatically get coordinates"
+                                            color: "#d8dee9"
+                                            font.italic: true
+                                            font.pointSize: 10
+                                        }
+                                        
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: Kirigami.Units.largeSpacing
+                                            
+                                            TextField {
+                                                id: cityField
+                                                Layout.fillWidth: true
+                                                placeholderText: "e.g. New York, London, Tokyo"
+                                                selectByMouse: true
+                                                
+                                                Keys.onReturnPressed: {
+                                                    controller.lookupCity(text)
+                                                    text = ""
+                                                }
+                                            }
+                                            
+                                            Button {
+                                                text: "Lookup"
+                                                onClicked: {
+                                                    controller.lookupCity(cityField.text)
+                                                    cityField.text = ""
+                                                }
+                                                highlighted: true
+                                                Layout.preferredWidth: 80
+                                            }
+                                        }
+                                    }
+                                }
+                        
+                                // Manual coordinate inputs
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 180
+                                    color: "#3b4252"
+                                    radius: 10
+                                    border.color: "#b48ead"
+                                    border.width: 1
+                                    
+                                    ColumnLayout {
+                                        anchors.fill: parent
+                                        anchors.margins: Kirigami.Units.largeSpacing
+                                        spacing: Kirigami.Units.largeSpacing
+                                        
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            
+                                            Label {
+                                                text: "📍"
+                                                font.pointSize: 20
+                                            }
+                                            
+                                            Label {
+                                                text: "Manual Coordinates"
+                                                font.bold: true
+                                                font.pointSize: 12
+                                                color: "#eceff4"
+                                            }
+                                            
+                                            Item { Layout.fillWidth: true }
+                                        }
+                                        
+                                        GridLayout {
+                                            Layout.fillWidth: true
+                                            columns: 3
+                                            columnSpacing: Kirigami.Units.largeSpacing
+                                            rowSpacing: Kirigami.Units.smallSpacing
+                                            
+                                            Label {
+                                                text: "Latitude:"
+                                                font.bold: true
+                                                color: "#eceff4"
+                                            }
+                                            
+                                            TextField {
+                                                Layout.fillWidth: true
+                                                text: controller.latitude.toFixed(4)
+                                                onEditingFinished: controller.latitude = parseFloat(text) || 0
+                                                placeholderText: "40.7128"
+                                                selectByMouse: true
+                                            }
+                                            
+                                            Label {
+                                                text: "(-90 to 90)"
+                                                color: "#d8dee9"
+                                                font.italic: true
+                                                font.pointSize: 9
+                                            }
+                                            
+                                            Label {
+                                                text: "Longitude:"
+                                                font.bold: true
+                                                color: "#eceff4"
+                                            }
+                                            
+                                            TextField {
+                                                Layout.fillWidth: true
+                                                text: controller.longitude.toFixed(4)
+                                                onEditingFinished: controller.longitude = parseFloat(text) || 0
+                                                placeholderText: "-74.0060"
+                                                selectByMouse: true
+                                            }
+                                            
+                                            Label {
+                                                text: "(-180 to 180)"
+                                                color: "#d8dee9"
+                                                font.italic: true
+                                                font.pointSize: 9
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                Item { Layout.fillHeight: true }
+                            }
+                        }
+                
+                        // Monitor Control Tab
+                        ScrollView {
+                            visible: controller.monitors.length > 0
+                            clip: true
+                            ScrollBar.vertical.policy: ScrollBar.AsNeeded
+                            ScrollBar.horizontal.policy: ScrollBar.AsNeeded
+                            
+                            ColumnLayout {
+                                width: parent.parent.width - 40
+                                spacing: Kirigami.Units.largeSpacing * 1.5
+                                
+                                // Monitor selection card
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 120
+                                    color: "#3b4252"
+                                    radius: 12
+                                    border.color: "#a3be8c"
+                                    border.width: 2
+                                    
+                                    ColumnLayout {
+                                        anchors.fill: parent
+                                        anchors.margins: Kirigami.Units.largeSpacing
+                                        spacing: Kirigami.Units.largeSpacing
+                                        
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            
+                                            Label {
+                                                text: "🖥️"
+                                                font.pointSize: 24
+                                            }
+                                            
+                                            Label {
+                                                text: "Monitor Selection"
+                                                font.bold: true
+                                                font.pointSize: 14
+                                                color: "#eceff4"
+                                            }
+                                            
+                                            Item { Layout.fillWidth: true }
+                                            
+                                            Label {
+                                                text: controller.monitors.length + " detected"
+                                                color: "#a3be8c"
+                                                font.bold: true
+                                            }
+                                        }
+                                        
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: Kirigami.Units.largeSpacing
+                                            
+                                            ComboBox {
+                                                id: monitorCombo
+                                                Layout.fillWidth: true
+                                                model: controller.monitors
+                                                textRole: "name"
+                                                valueRole: "id"
+                                                
+                                                onCurrentValueChanged: {
+                                                    if (currentValue) {
+                                                        controller.currentMonitor = currentValue
+                                                    }
+                                                }
+                                                
+                                                Component.onCompleted: {
+                                                    if (controller.monitors.length > 0) {
+                                                        currentIndex = 0
+                                                        controller.currentMonitor = controller.monitors[0].id
+                                                    }
+                                                }
+                                            }
+                                            
+                                            Button {
+                                                text: "Refresh"
+                                                onClicked: controller.refresh_monitors()
+                                                Layout.preferredWidth: 80
+                                            }
+                                            
+                                            Button {
+                                                text: "Detect"
+                                                onClicked: controller.detectMonitorCapabilities()
+                                                highlighted: true
+                                                Layout.preferredWidth: 80
+                                            }
+                                        }
+                                    }
+                                }
+                        
+                        
+                                // Monitor control subtabs
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 45
+                                    color: "#434c5e"
+                                    radius: 8
+                                    border.color: "#5e81ac"
+                                    border.width: 1
+                                    
+                                    TabBar {
+                                        id: monitorTabBar
+                                        anchors.fill: parent
+                                        anchors.margins: 4
+                                        background: Rectangle { color: "transparent" }
+                                        
+                                        TabButton {
+                                            text: "Display"
+                                            visible: controller.currentMonitorCapabilities.includes("16") || controller.currentMonitorCapabilities.includes("18") || controller.currentMonitorCapabilities.includes("19")
+                                            background: Rectangle {
+                                                color: parent.checked ? "#5e81ac" : "transparent"
+                                                radius: 4
+                                            }
+                                        }
+                                        TabButton {
+                                            text: "Color"
+                                            visible: controller.currentMonitorCapabilities.includes("20") || controller.currentMonitorCapabilities.includes("22") || controller.currentMonitorCapabilities.includes("14")
+                                            background: Rectangle {
+                                                color: parent.checked ? "#5e81ac" : "transparent"
+                                                radius: 4
+                                            }
+                                        }
+                                        TabButton {
+                                            text: "Input"
+                                            visible: controller.currentMonitorCapabilities.includes("60") || controller.currentMonitorCapabilities.includes("96")
+                                            background: Rectangle {
+                                                color: parent.checked ? "#5e81ac" : "transparent"
+                                                radius: 4
+                                            }
+                                        }
+                                    }
+                                }
+                        
+                                // Monitor control content
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
+                                    color: "#3b4252"
+                                    radius: 10
+                                    border.color: "#4c566a"
+                                    border.width: 1
+                                    
+                                    StackLayout {
+                                        anchors.fill: parent
+                                        anchors.margins: Kirigami.Units.largeSpacing
+                                        currentIndex: monitorTabBar.currentIndex
+                            
+                            // Display controls
+                            ScrollView {
+                                clip: true
+                                
+                                ColumnLayout {
+                                    width: parent.width - 20  // Account for scrollbar
+                                    spacing: Kirigami.Units.largeSpacing
+                                    
+                                    // Brightness (VCP 16)
+                                    GroupBox {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 80
+                                        title: "💡 Brightness (VCP 16)"
+                                        visible: controller.currentMonitorCapabilities.includes("16") || controller.currentMonitorCapabilities.length === 0
+                                        
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: Kirigami.Units.smallSpacing
+                                            
+                                            Slider {
+                                                id: monitorBrightness
+                                                Layout.fillWidth: true
+                                                from: 0
+                                                to: 100
+                                                value: 100
+                                                onPressedChanged: if (!pressed) controller.setMonitorValue(controller.currentMonitor, 16, value)
+                                            }
+                                            
+                                            Label {
+                                                text: Math.round(monitorBrightness.value) + "%"
+                                                color: "#d08770"
+                                                font.bold: true
+                                                Layout.preferredWidth: 50
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Contrast (VCP 18)
+                                    GroupBox {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 80
+                                        title: "🔳 Contrast (VCP 18)"
+                                        visible: controller.currentMonitorCapabilities.includes("18") || controller.currentMonitorCapabilities.length === 0
+                                        
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: Kirigami.Units.smallSpacing
+                                            
+                                            Slider {
+                                                id: monitorContrast
+                                                Layout.fillWidth: true
+                                                from: 0
+                                                to: 100
+                                                value: 50
+                                                onPressedChanged: if (!pressed) controller.setMonitorValue(controller.currentMonitor, 18, value)
+                                            }
+                                            
+                                            Label {
+                                                text: Math.round(monitorContrast.value) + "%"
+                                                color: "#b48ead"
+                                                font.bold: true
+                                                Layout.preferredWidth: 50
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Backlight (VCP 19)
+                                    GroupBox {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 80
+                                        title: "🔆 Backlight (VCP 19)"
+                                        visible: controller.currentMonitorCapabilities.includes("19") || controller.currentMonitorCapabilities.length === 0
+                                        
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: Kirigami.Units.smallSpacing
+                                            
+                                            Slider {
+                                                id: monitorBacklight
+                                                Layout.fillWidth: true
+                                                from: 0
+                                                to: 100
+                                                value: 100
+                                                onPressedChanged: if (!pressed) controller.setMonitorValue(controller.currentMonitor, 19, value)
+                                            }
+                                            
+                                            Label {
+                                                text: Math.round(monitorBacklight.value) + "%"
+                                                color: "#ebcb8b"
+                                                font.bold: true
+                                                Layout.preferredWidth: 50
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // Color controls
+                            ScrollView {
+                                clip: true
+                                
+                                ColumnLayout {
+                                    width: parent.width - 20  // Account for scrollbar
+                                    spacing: Kirigami.Units.largeSpacing
+                                    
+                                    // Red gain (VCP 22)
+                                    GroupBox {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 80
+                                        title: "🔴 Red Gain (VCP 22)"
+                                        
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: Kirigami.Units.smallSpacing
+                                            
+                                            Slider {
+                                                id: redGain
+                                                Layout.fillWidth: true
+                                                from: 0
+                                                to: 100
+                                                value: 50
+                                                onPressedChanged: if (!pressed) controller.setMonitorValue(controller.currentMonitor, 22, value)
+                                            }
+                                            
+                                            Label {
+                                                text: Math.round(redGain.value) + "%"
+                                                color: "#bf616a"
+                                                font.bold: true
+                                                Layout.preferredWidth: 50
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Green gain (VCP 23)
+                                    GroupBox {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 80
+                                        title: "🟢 Green Gain (VCP 23)"
+                                        
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: Kirigami.Units.smallSpacing
+                                            
+                                            Slider {
+                                                id: greenGain
+                                                Layout.fillWidth: true
+                                                from: 0
+                                                to: 100
+                                                value: 50
+                                                onPressedChanged: if (!pressed) controller.setMonitorValue(controller.currentMonitor, 23, value)
+                                            }
+                                            
+                                            Label {
+                                                text: Math.round(greenGain.value) + "%"
+                                                color: "#a3be8c"
+                                                font.bold: true
+                                                Layout.preferredWidth: 50
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Blue gain (VCP 24)
+                                    GroupBox {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 80
+                                        title: "🔵 Blue Gain (VCP 24)"
+                                        
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: Kirigami.Units.smallSpacing
+                                            
+                                            Slider {
+                                                id: blueGain
+                                                Layout.fillWidth: true
+                                                from: 0
+                                                to: 100
+                                                value: 50
+                                                onPressedChanged: if (!pressed) controller.setMonitorValue(controller.currentMonitor, 24, value)
+                                            }
+                                            
+                                            Label {
+                                                text: Math.round(blueGain.value) + "%"
+                                                color: "#5e81ac"
+                                                font.bold: true
+                                                Layout.preferredWidth: 50
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Color temperature (VCP 20)
+                                    GroupBox {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 80
+                                        title: "🌡️ Color Temperature (VCP 20)"
+                                        
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: Kirigami.Units.smallSpacing
+                                            
+                                            Slider {
+                                                id: colorTemp
+                                                Layout.fillWidth: true
+                                                from: 2000
+                                                to: 10000
+                                                value: 6500
+                                                onPressedChanged: if (!pressed) controller.setMonitorValue(controller.currentMonitor, 20, value)
+                                            }
+                                            
+                                            Label {
+                                                text: Math.round(colorTemp.value) + "K"
+                                                color: "#88c0d0"
+                                                font.bold: true
+                                                Layout.preferredWidth: 70
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Color presets (VCP 14)
+                                    GroupBox {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 120
+                                        title: "🎨 Color Presets (VCP 14)"
+                                        
+                                        ColumnLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: Kirigami.Units.smallSpacing
+                                            spacing: Kirigami.Units.smallSpacing
+                                            
+                                            Flow {
+                                                Layout.fillWidth: true
+                                                spacing: Kirigami.Units.smallSpacing
+                                                
+                                                Button { 
+                                                    text: "6500K"
+                                                    onClicked: controller.setMonitorValue(controller.currentMonitor, "14", 5)
+                                                }
+                                                Button { 
+                                                    text: "9300K"
+                                                    onClicked: controller.setMonitorValue(controller.currentMonitor, "14", 8)
+                                                }
+                                                Button { 
+                                                    text: "User 1"
+                                                    onClicked: controller.setMonitorValue(controller.currentMonitor, "14", 11)
+                                                }
+                                                Button { 
+                                                    text: "User 2"
+                                                    onClicked: controller.setMonitorValue(controller.currentMonitor, "14", 12)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // Geometry controls
+                            ScrollView {
+                                clip: true
+                                
+                                ColumnLayout {
+                                    width: parent.width - 20  // Account for scrollbar
+                                    spacing: Kirigami.Units.largeSpacing
+                                    
+                                    // Horizontal position (VCP 32)
+                                    GroupBox {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 80
+                                        title: "↔️ Horizontal Position (VCP 32)"
+                                        
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: Kirigami.Units.smallSpacing
+                                            
+                                            Slider {
+                                                id: hPosition
+                                                Layout.fillWidth: true
+                                                from: 0
+                                                to: 100
+                                                value: 50
+                                                onPressedChanged: if (!pressed) controller.setMonitorValue(controller.currentMonitor, 32, value)
+                                            }
+                                            
+                                            Label {
+                                                text: Math.round(hPosition.value) + "%"
+                                                color: "#d08770"
+                                                font.bold: true
+                                                Layout.preferredWidth: 50
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Vertical position (VCP 33)
+                                    GroupBox {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 80
+                                        title: "↕️ Vertical Position (VCP 33)"
+                                        
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: Kirigami.Units.smallSpacing
+                                            
+                                            Slider {
+                                                id: vPosition
+                                                Layout.fillWidth: true
+                                                from: 0
+                                                to: 100
+                                                value: 50
+                                                onPressedChanged: if (!pressed) controller.setMonitorValue(controller.currentMonitor, 33, value)
+                                            }
+                                            
+                                            Label {
+                                                text: Math.round(vPosition.value) + "%"
+                                                color: "#b48ead"
+                                                font.bold: true
+                                                Layout.preferredWidth: 50
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Horizontal size (VCP 34)
+                                    GroupBox {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 80
+                                        title: "🔀 Horizontal Size (VCP 34)"
+                                        
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: Kirigami.Units.smallSpacing
+                                            
+                                            Slider {
+                                                id: hSize
+                                                Layout.fillWidth: true
+                                                from: 0
+                                                to: 100
+                                                value: 50
+                                                onPressedChanged: if (!pressed) controller.setMonitorValue(controller.currentMonitor, 34, value)
+                                            }
+                                            
+                                            Label {
+                                                text: Math.round(hSize.value) + "%"
+                                                color: "#a3be8c"
+                                                font.bold: true
+                                                Layout.preferredWidth: 50
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Vertical size (VCP 35)
+                                    GroupBox {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 80
+                                        title: "🔃 Vertical Size (VCP 35)"
+                                        
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: Kirigami.Units.smallSpacing
+                                            
+                                            Slider {
+                                                id: vSize
+                                                Layout.fillWidth: true
+                                                from: 0
+                                                to: 100
+                                                value: 50
+                                                onPressedChanged: if (!pressed) controller.setMonitorValue(controller.currentMonitor, 35, value)
+                                            }
+                                            
+                                            Label {
+                                                text: Math.round(vSize.value) + "%"
+                                                color: "#ebcb8b"
+                                                font.bold: true
+                                                Layout.preferredWidth: 50
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // Input Source controls
+                            ScrollView {
+                                clip: true
+                                
+                                ColumnLayout {
+                                    width: parent.width - 20  // Account for scrollbar
+                                    spacing: Kirigami.Units.largeSpacing
+                                    
+                                    // Input source selection (VCP 96)
+                                    GroupBox {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 200
+                                        Layout.topMargin: Kirigami.Units.largeSpacing
+                                        title: "📺 Input Source (VCP 96)"
+                                        
+                                        ColumnLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: Kirigami.Units.largeSpacing
+                                            spacing: Kirigami.Units.largeSpacing
+                                            
+                                            Label {
+                                                text: "Select input source:"
+                                                color: "#eceff4"
+                                                font.bold: true
+                                                Layout.alignment: Qt.AlignHCenter
+                                            }
+                                            
+                                            GridLayout {
+                                                Layout.fillWidth: true
+                                                columns: 4
+                                                columnSpacing: Kirigami.Units.smallSpacing
+                                                rowSpacing: Kirigami.Units.smallSpacing
+                                                
+                                                Button { 
+                                                    Layout.fillWidth: true
+                                                    Layout.preferredHeight: 35
+                                                    text: "VGA"
+                                                    onClicked: controller.setMonitorValue(controller.currentMonitor, "60", 1)
+                                                }
+                                                Button { 
+                                                    Layout.fillWidth: true
+                                                    Layout.preferredHeight: 35
+                                                    text: "DVI"
+                                                    onClicked: controller.setMonitorValue(controller.currentMonitor, "60", 3)
+                                                }
+                                                Button { 
+                                                    Layout.fillWidth: true
+                                                    Layout.preferredHeight: 35
+                                                    text: "HDMI 1"
+                                                    onClicked: controller.setMonitorValue(controller.currentMonitor, "60", 17)
+                                                }
+                                                Button { 
+                                                    Layout.fillWidth: true
+                                                    Layout.preferredHeight: 35
+                                                    text: "HDMI 2"
+                                                    onClicked: controller.setMonitorValue(controller.currentMonitor, "60", 18)
+                                                }
+                                                
+                                                Button { 
+                                                    Layout.fillWidth: true
+                                                    Layout.preferredHeight: 35
+                                                    text: "DP 1"
+                                                    onClicked: controller.setMonitorValue(controller.currentMonitor, "60", 15)
+                                                }
+                                                Button { 
+                                                    Layout.fillWidth: true
+                                                    Layout.preferredHeight: 35
+                                                    text: "DP 2"
+                                                    onClicked: controller.setMonitorValue(controller.currentMonitor, "60", 16)
+                                                }
+                                                Button { 
+                                                    Layout.fillWidth: true
+                                                    Layout.preferredHeight: 35
+                                                    text: "USB-C"
+                                                    onClicked: controller.setMonitorValue(controller.currentMonitor, "60", 27)
+                                                }
+                                                
+                                                // Empty space for alignment
+                                                Item { Layout.fillWidth: true }
+                                            }
+                                            
+                                            // Manual input selection
+                                            GroupBox {
+                                                Layout.fillWidth: true
+                                                Layout.preferredHeight: 80
+                                                title: "Manual Input Code"
+                                                
+                                                RowLayout {
+                                                    anchors.fill: parent
+                                                    anchors.margins: Kirigami.Units.smallSpacing
+                                                    spacing: Kirigami.Units.smallSpacing
+                                                    
+                                                    Label {
+                                                        text: "Code:"
+                                                        color: "#d8dee9"
+                                                        Layout.preferredWidth: 40
+                                                    }
+                                                    
+                                                    TextField {
+                                                        id: inputSourceField
+                                                        Layout.preferredWidth: 80
+                                                        placeholderText: "0-255"
+                                                    }
+                                                    
+                                                    Button {
+                                                        text: "Set"
+                                                        Layout.preferredWidth: 60
+                                                        onClicked: {
+                                                            var value = parseInt(inputSourceField.text)
+                                                            if (!isNaN(value) && value >= 0 && value <= 255) {
+                                                                controller.setMonitorValue(controller.currentMonitor, "60", value)
+                                                            }
+                                                        }
+                                                    }
+                                                    
+                                                    Button {
+                                                        text: "Read"
+                                                        Layout.preferredWidth: 60
+                                                        onClicked: {
+                                                            var current = controller.getMonitorValue(controller.currentMonitor, "60")
+                                                            inputSourceField.text = current.toString()
+                                                        }
+                                                    }
+                                                    
+                                                    Item { Layout.fillWidth: true }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // Advanced controls
+                            ScrollView {
+                                clip: true
+                                
+                                ColumnLayout {
+                                    width: parent.width - 20  // Account for scrollbar
+                                    spacing: Kirigami.Units.largeSpacing
+                                    
+                                    // Input source (VCP 96)
+                                    GroupBox {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 120
+                                        title: "📺 Input Source (VCP 96)"
+                                        visible: controller.currentMonitorCapabilities.includes("96") || controller.currentMonitorCapabilities.length === 0
+                                        
+                                        ColumnLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: Kirigami.Units.smallSpacing
+                                            
+                                            RowLayout {
+                                                Button { text: "HDMI 1"; onClicked: controller.setMonitorValue(controller.currentMonitor, 96, 17) }
+                                                Button { text: "HDMI 2"; onClicked: controller.setMonitorValue(controller.currentMonitor, 96, 18) }
+                                                Button { text: "DP 1"; onClicked: controller.setMonitorValue(controller.currentMonitor, 96, 15) }
+                                                Button { text: "DP 2"; onClicked: controller.setMonitorValue(controller.currentMonitor, 96, 16) }
+                                            }
+                                            RowLayout {
+                                                Button { text: "DVI"; onClicked: controller.setMonitorValue(controller.currentMonitor, 96, 3) }
+                                                Button { text: "VGA"; onClicked: controller.setMonitorValue(controller.currentMonitor, 96, 1) }
+                                                Button { text: "USB-C"; onClicked: controller.setMonitorValue(controller.currentMonitor, 96, 27) }
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Power control (VCP 214)
+                                    GroupBox {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 100
+                                        title: "🔌 Power Control (VCP 214)"
+                                        visible: controller.currentMonitorCapabilities.includes("214") || controller.currentMonitorCapabilities.length === 0
+                                        
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: Kirigami.Units.smallSpacing
+                                            
+                                            Button {
+                                                text: "💤 Standby"
+                                                onClicked: controller.setMonitorValue(controller.currentMonitor, 214, 4)
+                                            }
+                                            Button {
+                                                text: "🌙 Suspend"
+                                                onClicked: controller.setMonitorValue(controller.currentMonitor, 214, 2)
+                                            }
+                                            Button {
+                                                text: "✅ On"
+                                                onClicked: controller.setMonitorValue(controller.currentMonitor, 214, 1)
+                                            }
+                                        }
+                                    }
+                                    
+                                    // OSD controls (VCP 202)
+                                    GroupBox {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 100
+                                        title: "📋 OSD Controls (VCP 202)"
+                                        visible: controller.currentMonitorCapabilities.includes("202") || controller.currentMonitorCapabilities.length === 0
+                                        
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: Kirigami.Units.smallSpacing
+                                            
+                                            Button {
+                                                text: "🔒 Lock OSD"
+                                                onClicked: controller.setMonitorValue(controller.currentMonitor, 202, 1)
+                                            }
+                                            Button {
+                                                text: "🔓 Unlock OSD"
+                                                onClicked: controller.setMonitorValue(controller.currentMonitor, 202, 2)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // All Settings Tab - Dynamic DDC/CI Controls
+                Item {
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: Kirigami.Units.largeSpacing * 1.5
+                        spacing: Kirigami.Units.largeSpacing
+                        
+                        // Monitor selection (same as other tab)
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 80
+                            color: "#3b4252"
+                            border.color: "#a3be8c"
+                            border.width: 1
+                            radius: 8
+                            
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: Kirigami.Units.smallSpacing
+                                spacing: Kirigami.Units.smallSpacing
+                                
+                                Label {
+                                    text: "📺 Monitor Selection"
+                                    font.bold: true
+                                    color: "#eceff4"
+                                    Layout.alignment: Qt.AlignHCenter
+                                }
+                                
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Kirigami.Units.largeSpacing
+                                    
+                                    Label {
+                                        text: "Monitor:"
+                                        color: "#eceff4"
+                                        font.bold: true
+                                    }
+                                    
+                                    ComboBox {
+                                        id: allSettingsMonitorCombo
+                                        Layout.fillWidth: true
+                                        model: controller.monitors
+                                        textRole: "name"
+                                        valueRole: "id"
+                                        
+                                        onCurrentValueChanged: {
+                                            if (currentValue) {
+                                                controller.currentMonitor = currentValue
+                                            }
+                                        }
+                                    }
+                                    
+                                    Button {
+                                        text: "🔄"
+                                        onClicked: controller.refresh_monitors()
+                                    }
+                                    
+                                    Button {
+                                        text: "🔍 Detect"
+                                        onClicked: controller.detectMonitorCapabilities()
+                                        highlighted: true
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Dynamic VCP Features List
+                        ScrollView {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            ScrollBar.vertical.policy: ScrollBar.AsNeeded
+                            ScrollBar.horizontal.policy: ScrollBar.AsNeeded
+                            
+                            ColumnLayout {
+                                width: parent.width - 20  // Account for scrollbar
+                                spacing: Kirigami.Units.largeSpacing
+                                
+                                Label {
+                                    text: "🛠️ All Detected DDC/CI Features"
+                                    font.bold: true
+                                    font.pointSize: 14
+                                    color: "#eceff4"
+                                    Layout.alignment: Qt.AlignHCenter
+                                    Layout.topMargin: Kirigami.Units.smallSpacing
+                                }
+                                
+                                Repeater {
+                                    id: vcpRepeater
+                                    model: controller.currentMonitorCapabilities
+                                    
+                                    delegate: GroupBox {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: vcpControl.implicitHeight + 40
+                                        
+                                        property string featureName: ""
+                                        property string featureCode: ""
+                                        property var featureValues: ({})
+                                        property int currentValue: 0
+                                        
+                                        title: featureName + " (VCP " + featureCode + ")"
+                                        
+                                        Component.onCompleted: {
+                                            var featureInfo = controller.getFeatureInfo(modelData)
+                                            featureName = featureInfo.name
+                                            featureCode = featureInfo.code
+                                            featureValues = featureInfo.values
+                                            
+                                            // Don't read current value on startup - it causes hangs
+                                            currentValue = 0
+                                        }
+                                        
+                                        ColumnLayout {
+                                            id: vcpControl
+                                            anchors.fill: parent
+                                            anchors.margins: Kirigami.Units.smallSpacing
+                                            spacing: Kirigami.Units.smallSpacing
+                                            
+                                            // Check if this is a discrete value feature or continuous
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                visible: Object.keys(parent.parent.featureValues).length === 0 // Show slider for continuous values
+                                                
+                                                Slider {
+                                                    id: vcpSlider
+                                                    Layout.fillWidth: true
+                                                    from: 0
+                                                    to: 255
+                                                    value: parent.parent.currentValue
+                                                    stepSize: 1
+                                                    
+                                                    onPressedChanged: {
+                                                        if (!pressed && controller.currentMonitor) {
+                                                            controller.setMonitorValue(controller.currentMonitor, parent.parent.featureCode, Math.round(value))
+                                                            parent.parent.currentValue = Math.round(value)
+                                                        }
+                                                    }
+                                                }
+                                                
+                                                Label {
+                                                    text: Math.round(vcpSlider.value)
+                                                    color: "#d8dee9"
+                                                    font.bold: true
+                                                    Layout.preferredWidth: 50
+                                                }
+                                            }
+                                            
+                                            // Show buttons for discrete values
+                                            Flow {
+                                                Layout.fillWidth: true
+                                                spacing: Kirigami.Units.smallSpacing
+                                                visible: Object.keys(parent.parent.featureValues).length > 0
+                                                
+                                                Repeater {
+                                                    model: {
+                                                        var values = []
+                                                        for (var key in parent.parent.featureValues) {
+                                                            values.push({
+                                                                code: key,
+                                                                name: parent.parent.featureValues[key]
+                                                            })
+                                                        }
+                                                        return values
+                                                    }
+                                                    
+                                                    delegate: Button {
+                                                        text: modelData.name + " (" + modelData.code + ")"
+                                                        highlighted: parseInt(modelData.code, 16) === vcpControl.currentValue
+                                                        
+                                                        onClicked: {
+                                                            if (controller.currentMonitor) {
+                                                                var decimalValue = parseInt(modelData.code, 16)
+                                                                controller.setMonitorValue(controller.currentMonitor, vcpControl.featureCode, decimalValue)
+                                                                vcpControl.currentValue = decimalValue
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            
+                                            // Manual value input
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: Kirigami.Units.smallSpacing
+                                                
+                                                Label {
+                                                    text: "Manual:"
+                                                    color: "#d8dee9"
+                                                }
+                                                
+                                                TextField {
+                                                    id: manualInput
+                                                    Layout.preferredWidth: 80
+                                                    placeholderText: "0-255"
+                                                    text: parent.parent.currentValue.toString()
+                                                    
+                                                    onEditingFinished: {
+                                                        var value = parseInt(text)
+                                                        if (!isNaN(value) && value >= 0 && value <= 255) {
+                                                            if (controller.currentMonitor) {
+                                                                controller.setMonitorValue(controller.currentMonitor, parent.parent.featureCode, value)
+                                                                parent.parent.currentValue = value
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                
+                                                Button {
+                                                    text: "Set"
+                                                    onClicked: {
+                                                        var value = parseInt(manualInput.text)
+                                                        if (!isNaN(value) && value >= 0 && value <= 255) {
+                                                            if (controller.currentMonitor) {
+                                                                controller.setMonitorValue(controller.currentMonitor, parent.parent.featureCode, value)
+                                                                parent.parent.currentValue = value
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                
+                                                Button {
+                                                    text: "Read"
+                                                    onClicked: {
+                                                        if (controller.currentMonitor) {
+                                                            parent.parent.currentValue = controller.getMonitorValue(controller.currentMonitor, parent.parent.featureCode)
+                                                            manualInput.text = parent.parent.currentValue.toString()
+                                                        }
+                                                    }
+                                                }
+                                                
+                                                Item { Layout.fillWidth: true }
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                // Message when no capabilities detected
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 100
+                                    color: "#3b4252"
+                                    border.color: "#bf616a"
+                                    border.width: 1
+                                    radius: 8
+                                    visible: controller.currentMonitorCapabilities.length === 0
+                                    
+                                    Label {
+                                        anchors.centerIn: parent
+                                        text: "No DDC/CI capabilities detected.\nSelect a monitor and click 'Detect' to scan for features."
+                                        color: "#eceff4"
+                                        horizontalAlignment: Text.AlignHCenter
+                                        font.italic: true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+                // Bottom action bar
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 60
+                    color: "#434c5e"
+                    radius: 8
+                    border.color: "#bf616a"
+                    border.width: 1
+                    
+                    RowLayout {
+                        anchors.centerIn: parent
+                        spacing: Kirigami.Units.largeSpacing
+                        
+                        Button {
+                            text: "Close Application"
+                            onClicked: Qt.quit()
+                            Layout.preferredWidth: 150
+                            Layout.preferredHeight: 35
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

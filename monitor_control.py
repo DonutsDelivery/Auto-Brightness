@@ -1,10 +1,107 @@
 #!/usr/bin/env python3
 
-import subprocess
 import json
+import fcntl
+import functools
 import logging
+import os
 import re
+import stat
+import subprocess
+import threading
+import time
+from contextlib import contextmanager
 from typing import Dict, List, Optional, Tuple, Any
+
+
+DDC_LOCK_TIMEOUT = 30.0
+DDC_COMMAND_TIMEOUT = 20.0
+_ddc_thread_lock = threading.RLock()
+_ddc_lock_state = threading.local()
+
+
+def _ddc_lock_path() -> str:
+    """Return the per-user lock shared by the service and configuration GUI."""
+    override = os.environ.get('AUTO_BRIGHTNESS_DDC_LOCK')
+    if override:
+        return override
+    runtime_dir = os.environ.get('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')
+    return os.path.join(runtime_dir, 'auto-brightness-ddc.lock')
+
+
+@contextmanager
+def serialized_ddc_access(timeout: float = DDC_LOCK_TIMEOUT):
+    """Serialize DDC/I2C access across application threads and processes."""
+    deadline = time.monotonic() + timeout
+    if not _ddc_thread_lock.acquire(timeout=timeout):
+        raise TimeoutError(f"Timed out waiting {timeout:.1f}s for in-process DDC access")
+    try:
+        depth = getattr(_ddc_lock_state, 'depth', 0)
+        if depth:
+            _ddc_lock_state.depth = depth + 1
+            try:
+                yield
+            finally:
+                _ddc_lock_state.depth -= 1
+            return
+
+        lock_path = _ddc_lock_path()
+        lock_dir = os.path.dirname(lock_path) or '.'
+        directory_stat = os.stat(lock_dir, follow_symlinks=False)
+        if not stat.S_ISDIR(directory_stat.st_mode) or directory_stat.st_uid != os.getuid():
+            raise RuntimeError(f"Unsafe DDC lock directory: {lock_dir}")
+
+        flags = os.O_CREAT | os.O_RDWR | os.O_CLOEXEC
+        if hasattr(os, 'O_NOFOLLOW'):
+            flags |= os.O_NOFOLLOW
+        fd = os.open(lock_path, flags, 0o600)
+        try:
+            file_stat = os.fstat(fd)
+            if not stat.S_ISREG(file_stat.st_mode) or file_stat.st_uid != os.getuid():
+                raise RuntimeError(f"Unsafe DDC lock file: {lock_path}")
+
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(
+                            f"Timed out waiting {timeout:.1f}s for DDC access lock {lock_path}"
+                        )
+                    time.sleep(0.05)
+
+            _ddc_lock_state.depth = 1
+            try:
+                yield
+            finally:
+                _ddc_lock_state.depth = 0
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+    finally:
+        _ddc_thread_lock.release()
+
+
+def serialized_ddc_method(method):
+    """Wrap one monitor operation in the shared DDC transaction lock."""
+    @functools.wraps(method)
+    def wrapper(*args, **kwargs):
+        with serialized_ddc_access():
+            return method(*args, **kwargs)
+    return wrapper
+
+
+def run_ddcutil(args, *, timeout: float = DDC_COMMAND_TIMEOUT, check: bool = True):
+    """Run a bounded ddcutil command under the shared application lock."""
+    with serialized_ddc_access():
+        return subprocess.run(
+            ['ddcutil', *args],
+            capture_output=True,
+            text=True,
+            check=check,
+            timeout=timeout,
+        )
 
 
 class KDEScreenBrightness:
@@ -82,6 +179,7 @@ class KDEScreenBrightness:
             self.logger.error(f"Failed to get display names: {e}")
         return []
 
+    @serialized_ddc_method
     def detect_monitors(self) -> Dict[str, Dict[str, Any]]:
         """Detect all monitors via KDE ScreenBrightness interface"""
         monitors = {}
@@ -123,6 +221,7 @@ class KDEScreenBrightness:
         self.monitors = monitors
         return monitors
 
+    @serialized_ddc_method
     def get_brightness(self, monitor_id: str) -> Optional[int]:
         """Get brightness for a monitor (returns 0-100)"""
         if monitor_id not in self.monitors:
@@ -137,6 +236,7 @@ class KDEScreenBrightness:
             return int(int(brightness) * 100 / max_val)
         return None
 
+    @serialized_ddc_method
     def set_brightness(self, monitor_id: str, brightness_percent: int) -> bool:
         """Set brightness for a monitor (0-100)"""
         if monitor_id not in self.monitors:
@@ -277,6 +377,7 @@ class RawDDCIMonitorControl:
 
     # ---- public API -------------------------------------------------------
 
+    @serialized_ddc_method
     def detect_unmapped_monitors(self, known_buses: set) -> Dict[str, Dict[str, Any]]:
         """Scan NVIDIA i2c adapters not in *known_buses* for DDC-capable monitors."""
         monitors = {}
@@ -329,10 +430,12 @@ class RawDDCIMonitorControl:
         self.monitors.update(monitors)
         return monitors
 
+    @serialized_ddc_method
     def get_brightness(self, bus_str: str) -> Optional[int]:
         result = self._vcp_get(int(bus_str), 0x10)
         return result[0] if result else None
 
+    @serialized_ddc_method
     def set_brightness(self, bus_str: str, brightness_percent: int) -> bool:
         ok = self._vcp_set(int(bus_str), 0x10, brightness_percent)
         if ok:
@@ -356,13 +459,10 @@ class DDCIMonitorControl:
         )
         self.logger = logging.getLogger('DDCIControl')
     
-    def detect_monitors(self) -> Dict[str, Dict[str, Any]]:
-        """Detect all available monitors and their capabilities"""
+    def detect_monitors(self, include_capabilities: bool = True) -> Dict[str, Dict[str, Any]]:
+        """Detect monitors, optionally skipping expensive capability queries."""
         try:
-            result = subprocess.run(
-                ['ddcutil', 'detect', '--brief'], 
-                capture_output=True, text=True, check=True
-            )
+            result = run_ddcutil(['detect', '--brief'])
             
             monitors = {}
             current_monitor = None
@@ -401,26 +501,23 @@ class DDCIMonitorControl:
                         else:
                             monitors[current_monitor]['label'] = model_raw
             
-            # Get capabilities for each monitor
-            for monitor_id, monitor_info in monitors.items():
-                if monitor_info['i2c_bus']:
-                    capabilities = self.get_monitor_capabilities(monitor_info['i2c_bus'])
-                    monitors[monitor_id]['capabilities'] = capabilities
+            if include_capabilities:
+                for monitor_id, monitor_info in monitors.items():
+                    if monitor_info['i2c_bus']:
+                        capabilities = self.get_monitor_capabilities(monitor_info['i2c_bus'])
+                        monitors[monitor_id]['capabilities'] = capabilities
             
             self.monitors = monitors
             return monitors
             
-        except subprocess.CalledProcessError as e:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, TimeoutError, OSError) as e:
             self.logger.error(f"Failed to detect monitors: {e}")
             return {}
     
     def get_monitor_capabilities(self, bus: str) -> Dict[str, Any]:
         """Get DDC/CI capabilities for a specific monitor"""
         try:
-            result = subprocess.run(
-                ['ddcutil', '--bus', bus, 'capabilities'],
-                capture_output=True, text=True, check=True
-            )
+            result = run_ddcutil(['--bus', bus, 'capabilities'])
             
             capabilities = {
                 'model': 'Unknown',
@@ -463,17 +560,14 @@ class DDCIMonitorControl:
             
             return capabilities
             
-        except subprocess.CalledProcessError as e:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, TimeoutError, OSError) as e:
             self.logger.error(f"Failed to get capabilities for bus {bus}: {e}")
             return {}
     
     def get_vcp_value(self, bus: str, feature_code: str) -> Optional[int]:
         """Get current value of a VCP feature"""
         try:
-            result = subprocess.run(
-                ['ddcutil', '--bus', bus, 'getvcp', feature_code],
-                capture_output=True, text=True, check=True
-            )
+            result = run_ddcutil(['--bus', bus, 'getvcp', feature_code])
             
             # Parse the output to extract current value
             for line in result.stdout.split('\n'):
@@ -484,21 +578,18 @@ class DDCIMonitorControl:
             
             return None
             
-        except subprocess.CalledProcessError as e:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, TimeoutError, OSError) as e:
             self.logger.error(f"Failed to get VCP value for feature {feature_code} on bus {bus}: {e}")
             return None
     
     def set_vcp_value(self, bus: str, feature_code: str, value: int) -> bool:
         """Set value of a VCP feature"""
         try:
-            subprocess.run(
-                ['ddcutil', '--bus', bus, 'setvcp', feature_code, str(value)],
-                capture_output=True, text=True, check=True
-            )
+            run_ddcutil(['--bus', bus, 'setvcp', feature_code, str(value)])
             self.logger.info(f"Set VCP feature {feature_code} to {value} on bus {bus}")
             return True
             
-        except subprocess.CalledProcessError as e:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, TimeoutError, OSError) as e:
             self.logger.error(f"Failed to set VCP feature {feature_code} to {value} on bus {bus}: {e}")
             return False
     
@@ -616,6 +707,9 @@ class HybridMonitorControl:
         self.ddc = DDCIMonitorControl()
         self.raw_ddc = RawDDCIMonitorControl()
         self.monitors = {}
+        self._last_detection_monotonic = 0.0
+        self._detection_included_capabilities = False
+        self.last_detection_succeeded = False
         self.setup_logging()
 
     def setup_logging(self):
@@ -625,8 +719,35 @@ class HybridMonitorControl:
         )
         self.logger = logging.getLogger('HybridMonitorControl')
 
-    def detect_monitors(self) -> Dict[str, Dict[str, Any]]:
-        """Detect monitors using KDE interface (preferred) with DDC fallback"""
+    def _topology_is_degraded(self, candidate: Dict[str, Dict[str, Any]]) -> bool:
+        """Return True when a refresh loses known identities or routing data."""
+        if set(candidate) != set(self.monitors):
+            return True
+        for monitor_id, previous in self.monitors.items():
+            current = candidate[monitor_id]
+            if previous.get('backend') != current.get('backend'):
+                return True
+            if previous.get('i2c_bus') and not current.get('i2c_bus'):
+                return True
+        return False
+
+    def detect_monitors(
+        self,
+        include_capabilities: bool = True,
+        force_refresh: bool = False,
+        cache_ttl: float = 60.0,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Detect monitors using KDE, ddcutil, and raw-I2C fallback."""
+        cache_satisfies_request = (
+            self.monitors
+            and not force_refresh
+            and time.monotonic() - self._last_detection_monotonic < cache_ttl
+            and (not include_capabilities or self._detection_included_capabilities)
+        )
+        if cache_satisfies_request:
+            self.last_detection_succeeded = True
+            return self.monitors
+
         monitors = {}
 
         # Try KDE first - it can see all monitors
@@ -637,7 +758,7 @@ class HybridMonitorControl:
             self.logger.info(f"Found {len(kde_monitors)} monitors via KDE ScreenBrightness")
 
         # Also detect via DDC for additional VCP features
-        ddc_monitors = self.ddc.detect_monitors()
+        ddc_monitors = self.ddc.detect_monitors(include_capabilities=include_capabilities)
 
         # Map DDC monitors to KDE monitors by matching model names
         for kde_id, kde_info in monitors.items():
@@ -668,9 +789,18 @@ class HybridMonitorControl:
         if raw_monitors:
             self.logger.info(f"Found {len(raw_monitors)} additional monitor(s) via raw I2C probe")
 
+        if self.monitors and not force_refresh and self._topology_is_degraded(monitors):
+            self.last_detection_succeeded = False
+            self.logger.warning("Monitor refresh was incomplete; retaining last known routing topology")
+            return self.monitors
+
         self.monitors = monitors
+        self._last_detection_monotonic = time.monotonic()
+        self._detection_included_capabilities = include_capabilities
+        self.last_detection_succeeded = True
         return monitors
 
+    @serialized_ddc_method
     def get_brightness(self, monitor_id: str) -> Optional[int]:
         """Get brightness using appropriate backend"""
         if monitor_id not in self.monitors:
@@ -693,6 +823,7 @@ class HybridMonitorControl:
 
         return None
 
+    @serialized_ddc_method
     def set_brightness(self, monitor_id: str, brightness_percent: int) -> bool:
         """Set brightness using appropriate backend"""
         if monitor_id not in self.monitors:
@@ -716,6 +847,7 @@ class HybridMonitorControl:
 
         return False
 
+    @serialized_ddc_method
     def set_vcp_value(self, monitor_id: str, feature_code: str, value: int) -> bool:
         """Set VCP value - brightness uses KDE, others use DDC"""
         if monitor_id not in self.monitors:
@@ -742,6 +874,7 @@ class HybridMonitorControl:
         self.logger.warning(f"Cannot set VCP {feature_code} on {monitor_id} - no DDC available")
         return False
 
+    @serialized_ddc_method
     def get_vcp_value(self, monitor_id: str, feature_code: str) -> Optional[int]:
         """Get VCP value"""
         if monitor_id not in self.monitors:
@@ -764,6 +897,7 @@ class HybridMonitorControl:
 
         return None
 
+    @serialized_ddc_method
     def get_monitor_capabilities(self, monitor_id: str) -> Dict[str, Any]:
         """Get capabilities for a monitor"""
         if monitor_id not in self.monitors:

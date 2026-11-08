@@ -52,6 +52,7 @@ Edit `config.json` to customize:
 - `min_brightness` - Minimum brightness at night (0.0-1.0)
 - `max_brightness` - Maximum brightness at midday (0.0-1.0)
 - `update_interval` - Seconds between brightness updates
+- `display_refresh_interval` - Seconds between full DDC topology scans (default: 1800); connector changes refresh immediately
 - `monitor_offsets` - Per-monitor brightness adjustments
 
 ## GUI
