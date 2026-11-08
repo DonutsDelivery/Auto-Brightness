@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>DonutMonitorControl</title>
+  <!-- stand -->
+  <path d="M216 380h80l14 62h-108z" fill="#4c566a"/>
+  <rect x="160" y="436" width="192" height="26" rx="13" fill="#434c5e"/>
+  <!-- monitor body -->
+  <rect x="40" y="62" width="432" height="328" rx="34" fill="#88c0d0"/>
+  <!-- screen -->
+  <rect x="62" y="84" width="388" height="284" rx="18" fill="#2e3440"/>
+  <!-- sun: disc and eight rays -->
+  <g transform="translate(256 226)">
+    <circle r="50" fill="#ebcb8b"/>
+    <g stroke="#ebcb8b" stroke-width="16" stroke-linecap="round">
+      <line x1="0" y1="-78" x2="0" y2="-100"/>
+      <line x1="0" y1="78" x2="0" y2="100"/>
+      <line x1="-78" y1="0" x2="-100" y2="0"/>
+      <line x1="78" y1="0" x2="100" y2="0"/>
+      <line x1="-55" y1="-55" x2="-71" y2="-71"/>
+      <line x1="55" y1="-55" x2="71" y2="-71"/>
+      <line x1="-55" y1="55" x2="-71" y2="71"/>
+      <line x1="55" y1="55" x2="71" y2="71"/>
+    </g>
+  </g>
+</svg>

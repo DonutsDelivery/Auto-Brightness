@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=DonutMonitorControl
+GenericName=Monitor Control
+Comment=Control monitor brightness, color and input over DDC/CI, with sun-based auto brightness
+Exec=donut-monitor
+Icon=online.donutsdelivery.DonutMonitorControl
+Terminal=false
+Categories=Settings;HardwareSettings;Qt;
+Keywords=monitor;brightness;ddc;ddcutil;display;contrast;input;
+StartupNotify=true
+StartupWMClass=online.donutsdelivery.DonutMonitorControl

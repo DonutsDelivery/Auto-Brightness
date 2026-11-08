@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>online.donutsdelivery.DonutMonitorControl</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>DonutMonitorControl</name>
+  <summary>Control monitor brightness, color and input over DDC/CI</summary>
+  <developer id="online.donutsdelivery">
+    <name>DonutsDelivery</name>
+  </developer>
+  <description>
+    <p>
+      DonutMonitorControl talks to your monitors over DDC/CI. Set brightness,
+      contrast, color preset and input source from one window, and let a
+      background service follow the sun so the screen is dimmer at night and
+      brighter at midday.
+    </p>
+    <ul>
+      <li>Brightness follows solar elevation at your location</li>
+      <li>Per-monitor brightness offsets</li>
+      <li>Pauses auto brightness while a window is fullscreen on a monitor</li>
+      <li>KDE Plasma brightness integration, with ddcutil and raw I2C for other monitors</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">online.donutsdelivery.DonutMonitorControl.desktop</launchable>
+  <url type="homepage">https://donutsdelivery.online/monitorremotecontrol</url>
+  <url type="bugtracker">https://github.com/DonutsDelivery/Auto-Brightness/issues</url>
+  <provides>
+    <binary>donut-monitor</binary>
+    <binary>donut-monitord</binary>
+  </provides>
+  <categories>
+    <category>Settings</category>
+    <category>HardwareSettings</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="2.7.0" date="2026-11-08">
+      <description>
+        <p>Renamed from Monitor Remote Control to DonutMonitorControl. The daemon now runs from the packaged systemd user unit, and the GUI and daemon share one config file.</p>
+      </description>
+    </release>
+  </releases>
+</component>
