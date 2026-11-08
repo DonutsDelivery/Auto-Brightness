@@ -1,7 +1,7 @@
 # Maintainer: DonutsDelivery <megusta52@proton.me>
 pkgname=donutmonitorcontrol
 pkgver=2.7.0
-pkgrel=1
+pkgrel=2
 pkgdesc="Control monitor brightness, color and input over DDC/CI, with sun-based auto brightness"
 arch=('any')
 url="https://github.com/DonutsDelivery/Auto-Brightness"
@@ -26,6 +26,9 @@ package() {
     # Entry points. They add /usr/share/donut-monitor-control to sys.path themselves.
     install -Dm755 auto_brightness.py "$pkgdir/usr/bin/donut-monitord"
     install -Dm755 brightness_kirigami_qt6.py "$pkgdir/usr/bin/donut-monitor"
+    # Use the system Python: a pyenv or venv python3 earlier on PATH carries its own
+    # PyQt6, which can't load the system Kirigami plugin.
+    sed -i '1s|^#!.*python.*$|#!/usr/bin/python3|' "$pkgdir/usr/bin/donut-monitord" "$pkgdir/usr/bin/donut-monitor"
 
     # Modules and QML shared by both entry points
     local share="$pkgdir/usr/share/donut-monitor-control"

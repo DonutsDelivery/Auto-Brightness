@@ -10,4 +10,4 @@ Terminal=false
 Categories=Settings;HardwareSettings;Qt;
 Keywords=monitor;brightness;ddc;ddcutil;display;contrast;input;
 StartupNotify=true
-StartupWMClass=online.donutsdelivery.DonutMonitorControl
+StartupWMClass=DonutMonitorControl

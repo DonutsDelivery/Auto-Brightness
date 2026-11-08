@@ -203,6 +203,12 @@ Kirigami.ApplicationWindow {
                                         Switch {
                                             Layout.alignment: Qt.AlignHCenter
                                             text: "Auto Brightness"
+                                            // The window paints its own dark theme, so the label
+                                            // can't take its colour from a light system palette.
+                                            palette.windowText: "#eceff4"
+                                            palette.text: "#eceff4"
+                                            Kirigami.Theme.inherit: false
+                                            Kirigami.Theme.textColor: "#eceff4"
                                             checked: controller.autoBrightnessEnabled
                                             onToggled: controller.autoBrightnessEnabled = checked
                                             font.pointSize: 14
