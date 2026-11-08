@@ -10,13 +10,14 @@ depends=('python' 'python-requests' 'python-pyqt6' 'qt6-declarative' 'kirigami'
          'ddcutil' 'qt6-tools' 'glib2' 'hicolor-icon-theme')
 optdepends=('breeze: Breeze style used by the GUI'
             'edid-decode: improved fullscreen detection on multi-monitor setups'
-            'plasma-desktop: KDE ScreenBrightness integration and KWin fullscreen detection')
+            'plasma-desktop: KDE ScreenBrightness integration and KWin fullscreen detection'
+            'python-dbus: GNOME Wayland fullscreen detection')
 makedepends=('git')
 provides=('monitor-remote-control')
 conflicts=('monitor-remote-control')
 replaces=('monitor-remote-control')
 backup=('etc/donut-monitor-control/config.json')
-source=("git+https://github.com/DonutsDelivery/Auto-Brightness.git")
+source=("git+https://github.com/DonutsDelivery/Auto-Brightness.git#tag=v${pkgver}")
 sha256sums=('SKIP')
 
 package() {
