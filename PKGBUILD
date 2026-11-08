@@ -1,50 +1,58 @@
 # Maintainer: DonutsDelivery <megusta52@proton.me>
-pkgname=monitor-remote-control
-pkgver=2.6.0
+pkgname=donutmonitorcontrol
+pkgver=2.7.0
 pkgrel=1
-pkgdesc="Remote monitor control via DDC/CI with GUI interface for brightness, color, input switching and auto-brightness"
+pkgdesc="Control monitor brightness, color and input over DDC/CI, with sun-based auto brightness"
 arch=('any')
 url="https://github.com/DonutsDelivery/Auto-Brightness"
 license=('MIT')
-depends=('python' 'python-requests' 'ddcutil' 'python-pyqt6' 'kirigami' 'python-monitor-control')
-optdepends=('edid-decode: improved fullscreen detection on multi-monitor setups')
+depends=('python' 'python-requests' 'python-pyqt6' 'qt6-declarative' 'kirigami'
+         'ddcutil' 'qt6-tools' 'glib2' 'hicolor-icon-theme')
+optdepends=('breeze: Breeze style used by the GUI'
+            'edid-decode: improved fullscreen detection on multi-monitor setups'
+            'plasma-desktop: KDE ScreenBrightness integration and KWin fullscreen detection')
 makedepends=('git')
+provides=('monitor-remote-control')
+conflicts=('monitor-remote-control')
+replaces=('monitor-remote-control')
+backup=('etc/donut-monitor-control/config.json')
 source=("git+https://github.com/DonutsDelivery/Auto-Brightness.git")
 sha256sums=('SKIP')
 
 package() {
     cd "$srcdir/Auto-Brightness"
-    
-    # Install main applications as executables
-    install -Dm755 auto_brightness.py "$pkgdir/usr/bin/auto-brightness"
-    install -Dm755 brightness_kirigami_qt6.py "$pkgdir/usr/bin/monitor-remote-control"
-    
-    # Install additional Python modules
-    install -Dm755 brightness_control.py "$pkgdir/usr/share/monitor-remote-control/brightness_control.py"
-    install -Dm755 monitor_control.py "$pkgdir/usr/share/monitor-remote-control/monitor_control.py"
-    install -Dm755 update_config.py "$pkgdir/usr/share/monitor-remote-control/update_config.py"
-    
-    # Install QML UI files
-    install -Dm644 brightness_kirigami_qt6.qml "$pkgdir/usr/share/monitor-remote-control/brightness_kirigami_qt6.qml"
-    
-    # Install default config file
-    install -Dm644 config.json "$pkgdir/etc/monitor-remote-control/config.json"
-    
-    # Install systemd user service
-    sed 's/auto-brightness/monitor-remote-control/g' auto-brightness.service > monitor-remote-control.service
-    install -Dm644 monitor-remote-control.service "$pkgdir/usr/lib/systemd/user/monitor-remote-control.service"
-    
-    # Create desktop entry
-    cat > monitor-remote-control.desktop << EOF
-[Desktop Entry]
-Type=Application
-Name=Monitor Remote Control
-Comment=Remote monitor control via DDC/CI with auto-brightness
-Exec=monitor-remote-control
-Icon=preferences-desktop-display
-Categories=Settings;HardwareSettings;
-Keywords=monitor;brightness;ddc;display;control;
-EOF
-    
-    install -Dm644 monitor-remote-control.desktop "$pkgdir/usr/share/applications/monitor-remote-control.desktop"
+
+    # Entry points. They add /usr/share/donut-monitor-control to sys.path themselves.
+    install -Dm755 auto_brightness.py "$pkgdir/usr/bin/donut-monitord"
+    install -Dm755 brightness_kirigami_qt6.py "$pkgdir/usr/bin/donut-monitor"
+
+    # Modules and QML shared by both entry points
+    local share="$pkgdir/usr/share/donut-monitor-control"
+    install -Dm644 monitor_control.py "$share/monitor_control.py"
+    install -Dm644 donut_monitor_common.py "$share/donut_monitor_common.py"
+    install -Dm644 brightness_kirigami_qt6.qml "$share/brightness_kirigami_qt6.qml"
+
+    # System default config. The first run copies it to ~/.config/donut-monitor-control/.
+    install -Dm644 config.json "$pkgdir/etc/donut-monitor-control/config.json"
+
+    # systemd user unit (runs the daemon)
+    install -Dm644 donut-monitord.service "$pkgdir/usr/lib/systemd/user/donut-monitord.service"
+
+    # i2c access for DDC/CI
+    install -Dm644 udev/60-donut-monitor-i2c.rules "$pkgdir/usr/lib/udev/rules.d/60-donut-monitor-i2c.rules"
+    install -Dm644 modules-load.d/donut-monitor-i2c.conf "$pkgdir/usr/lib/modules-load.d/donut-monitor-i2c.conf"
+    install -Dm644 sysusers.d/donut-monitor-i2c.conf "$pkgdir/usr/lib/sysusers.d/donut-monitor-i2c.conf"
+
+    # Desktop integration
+    local appid=online.donutsdelivery.DonutMonitorControl
+    install -Dm644 "data/$appid.desktop" "$pkgdir/usr/share/applications/$appid.desktop"
+    install -Dm644 "data/$appid.metainfo.xml" "$pkgdir/usr/share/metainfo/$appid.metainfo.xml"
+    install -Dm644 "data/icons/$appid.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/$appid.svg"
+    local size
+    for size in 16 24 32 48 64 128 256 512; do
+        install -Dm644 "data/icons/hicolor/${size}x${size}/apps/$appid.png" \
+            "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/$appid.png"
+    done
+
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
