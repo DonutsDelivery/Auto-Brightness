@@ -17,7 +17,7 @@ _SHARE_DIR = "/usr/share/donut-monitor-control"
 if os.path.isdir(_SHARE_DIR) and _SHARE_DIR not in sys.path:
     sys.path.append(_SHARE_DIR)
 
-from donut_monitor_common import resolve_config_path, qdbus_binary
+from donut_monitor_common import resolve_config_path, qdbus_binary, i2c_access_problem
 
 QDBUS = qdbus_binary()
 
@@ -782,6 +782,9 @@ class AutoBrightnessService:
         displays = self.get_displays(force_refresh=True)
         if not displays:
             logging.error("No displays found")
+            problem = i2c_access_problem()
+            if problem:
+                logging.error(problem)
             return
         
         logging.info(f"Found displays: {displays}")
