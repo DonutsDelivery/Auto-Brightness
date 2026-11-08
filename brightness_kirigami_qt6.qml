@@ -52,18 +52,31 @@ Kirigami.ApplicationWindow {
         repeat: false
         onTriggered: {
             root.canPreview = true
+            if (root.pendingBrightness >= 0) {
+                var nextBrightness = root.pendingBrightness
+                root.pendingBrightness = -1
+                root.throttledPreview(nextBrightness)
+            }
         }
     }
     property int pendingBrightness: -1
     property bool canPreview: true
 
     function throttledPreview(brightness) {
-        root.pendingBrightness = brightness
         if (root.canPreview) {
+            root.pendingBrightness = -1
             controller.previewBrightness(brightness)
             root.canPreview = false
             brightnessPreviewTimer.start()
+        } else {
+            root.pendingBrightness = brightness
         }
+    }
+
+    function cancelPendingPreview() {
+        brightnessPreviewTimer.stop()
+        root.pendingBrightness = -1
+        root.canPreview = true
     }
 
     BrightnessController {
@@ -559,6 +572,7 @@ Kirigami.ApplicationWindow {
                                                         // Save the new value
                                                         controller.minBrightness = value
                                                         // Restore to current time-appropriate brightness
+                                                        root.cancelPendingPreview()
                                                         var currentBrightness = controller.calculateCurrentBrightness(controller.maxBrightness)
                                                         controller.previewBrightness(currentBrightness)
                                                         // Update the solar status card
@@ -654,6 +668,7 @@ Kirigami.ApplicationWindow {
                                                         // Save the new value
                                                         controller.maxBrightness = value
                                                         // Apply the new calculated brightness
+                                                        root.cancelPendingPreview()
                                                         var currentBrightness = controller.calculateCurrentBrightness(Math.round(value))
                                                         controller.previewBrightness(currentBrightness)
                                                         // Update the solar status card

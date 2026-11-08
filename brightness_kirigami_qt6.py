@@ -38,7 +38,7 @@ except ImportError:
     from PyQt5.QtGui import QIcon
     QT_VERSION = 5
 
-from monitor_control import HybridMonitorControl
+from monitor_control import HybridMonitorControl, serialized_ddc_access
 from donut_monitor_common import (
     APP_ID, APP_NAME, SERVICE_UNIT, SHARE_DIR, resolve_config_path, i2c_access_problem,
 )
@@ -60,11 +60,14 @@ class BrightnessController(QObject):
         self.monitor_control = HybridMonitorControl()
         self._monitors = {}
         self._current_monitor = None
+        self._preview_lock = threading.Lock()
+        self._pending_preview = None
+        self._preview_worker_running = False
         
         # Auto-refresh monitors (less frequent for better performance)
         self.refresh_timer = QTimer()
         self.refresh_timer.timeout.connect(self.refresh_monitors)
-        self.refresh_timer.start(120000)  # Refresh every 2 minutes instead of 30 seconds
+        self.refresh_timer.start(600000)  # Manual refresh remains available; poll every 10 minutes
         
         # Cache for VCP definitions to avoid recreating them
         self._vcp_definitions_cache = None
@@ -298,8 +301,7 @@ class BrightnessController(QObject):
     @pyqtSlot()
     def refreshMonitorList(self):
         """Refresh the list of detected monitors for calibration"""
-        self.detectMonitors()
-        self.monitorsChanged.emit()
+        self.refresh_monitors(force_refresh=True)
 
     @pyqtSlot(str)
     def lookupCity(self, city_name):
@@ -359,16 +361,41 @@ class BrightnessController(QObject):
 
     @pyqtSlot(int)
     def previewBrightness(self, brightness_percent):
-        """Preview brightness on all monitors in real-time (doesn't save to config)"""
-        def preview_thread():
+        """Coalesce live previews and reuse the already detected monitor map."""
+        with self._preview_lock:
+            self._pending_preview = max(0, min(100, int(brightness_percent)))
+            if self._preview_worker_running:
+                return
+            self._preview_worker_running = True
+
+        threading.Thread(target=self._run_preview_worker, daemon=True).start()
+
+    def _run_preview_worker(self):
+        while True:
+            with self._preview_lock:
+                brightness_percent = self._pending_preview
+                self._pending_preview = None
+
+            if brightness_percent is None:
+                with self._preview_lock:
+                    self._preview_worker_running = False
+                return
+
             try:
-                monitors = self.monitor_control.detect_monitors()
-                for monitor_id in monitors.keys():
-                    self.monitor_control.set_vcp_value(monitor_id, "10", brightness_percent)
+                monitors = self.monitor_control.monitors
+                if not monitors:
+                    monitors = self.monitor_control.detect_monitors(include_capabilities=False)
+                monitor_ids = sorted(monitors.keys())
+                with serialized_ddc_access():
+                    for monitor_id in monitor_ids:
+                        self.monitor_control.set_vcp_value(monitor_id, "10", brightness_percent)
             except Exception as e:
                 print(f"Preview brightness error: {e}")
 
-        threading.Thread(target=preview_thread, daemon=True).start()
+            with self._preview_lock:
+                if self._pending_preview is None:
+                    self._preview_worker_running = False
+                    return
 
     @pyqtSlot(float, result=int)
     def calculateCurrentBrightness(self, max_brightness_percent):
@@ -601,10 +628,13 @@ class BrightnessController(QObject):
         threading.Thread(target=detect_thread, daemon=True).start()
     
     @pyqtSlot()
-    def refresh_monitors(self):
+    def refresh_monitors(self, force_refresh=False):
         """Refresh the list of available monitors"""
         try:
-            monitors_data = self.monitor_control.detect_monitors()
+            monitors_data = self.monitor_control.detect_monitors(
+                include_capabilities=False,
+                force_refresh=force_refresh,
+            )
             self._monitors = {}
 
             # Explain an unusable /dev/i2c-* instead of showing an empty list
@@ -645,6 +675,9 @@ class BrightnessController(QObject):
                 print(f"  Monitor {mid}: {minfo['name']} [backend={backend}], caps: {len(minfo.get('capabilities', []))}")
 
             self.monitorsChanged.emit()
+            # Full capabilities are only needed for the selected monitor's
+            # controls, not for every monitor during topology discovery.
+            self.detectMonitorCapabilities()
         except Exception as e:
             print(f"Error refreshing monitors: {e}")
             import traceback

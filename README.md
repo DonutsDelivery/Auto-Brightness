@@ -89,6 +89,7 @@ Edit the config file (see above) or use the GUI:
 - `min_brightness` - Minimum brightness at night (0.0-1.0)
 - `max_brightness` - Maximum brightness at midday (0.0-1.0)
 - `update_interval` - Seconds between brightness updates
+- `display_refresh_interval` - Seconds between full DDC topology scans (default: 1800); connector changes refresh immediately
 - `monitor_offsets` - Per-monitor brightness adjustments
 
 Restart the daemon after editing by hand: `systemctl --user restart donut-monitord.service`.

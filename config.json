@@ -8,5 +8,6 @@
   "transition_duration": 30,
   "auto_brightness_enabled": true,
   "monitor_offsets": {},
-  "fullscreen_brightness_enabled": true
+  "fullscreen_brightness_enabled": true,
+  "use_elevation_scaling": false
 }

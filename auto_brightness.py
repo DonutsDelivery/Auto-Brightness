@@ -10,6 +10,7 @@ import logging
 import sys
 import os
 import re
+from contextlib import contextmanager
 
 # Installed copies live in /usr/bin; the shared modules live in /usr/share/donut-monitor-control.
 _SHARE_DIR = "/usr/share/donut-monitor-control"
@@ -22,10 +23,25 @@ QDBUS = qdbus_binary()
 
 # Import the hybrid monitor control for KDE + DDC support
 try:
-    from monitor_control import HybridMonitorControl
+    from monitor_control import HybridMonitorControl, run_ddcutil, serialized_ddc_access
     HAS_HYBRID_CONTROL = True
 except ImportError:
     HAS_HYBRID_CONTROL = False
+    HybridMonitorControl = None
+
+    def run_ddcutil(args, *, timeout=20.0, check=True):
+        """Fallback used only when the shared monitor-control module is absent."""
+        return subprocess.run(
+            ['ddcutil', *args],
+            capture_output=True,
+            text=True,
+            check=check,
+            timeout=timeout,
+        )
+
+    @contextmanager
+    def serialized_ddc_access(timeout=30.0):
+        yield
 
 
 class AutoBrightnessService:
@@ -39,7 +55,7 @@ class AutoBrightnessService:
 
         # Initialize hybrid monitor control if available
         self.hybrid_control = None
-        if HAS_HYBRID_CONTROL:
+        if HAS_HYBRID_CONTROL and HybridMonitorControl is not None:
             try:
                 self.hybrid_control = HybridMonitorControl()
                 logging.info("Using HybridMonitorControl (KDE + DDC)")
@@ -56,6 +72,11 @@ class AutoBrightnessService:
         self._desktop = os.environ.get('XDG_CURRENT_DESKTOP', '').upper().split(':')[-1]  # e.g. "GNOME", "KDE"
         # Track last brightness set per display to avoid redundant DDC calls
         self._last_brightness = {}
+        # Cache the stable display topology; brightness calculation still runs
+        # at the configured update interval.
+        self._cached_displays = []
+        self._display_cache_signature = ()
+        self._display_cache_refreshed_at = 0.0
 
     def get_fullscreen_monitors(self):
         """Detect which monitors have fullscreen windows.
@@ -361,6 +382,7 @@ class AutoBrightnessService:
             "min_brightness": 0.1,
             "max_brightness": 1.0,
             "update_interval": 300,
+            "display_refresh_interval": 1800,
             "displays": [],
             "transition_duration": 30,
             "auto_brightness_enabled": True
@@ -529,33 +551,88 @@ class AutoBrightnessService:
             # Bright midday sun (elevation > 40°)
             return max_brightness
     
-    def get_displays(self):
-        """Get list of displays - uses hybrid control if available for all monitors"""
+    def _connected_display_signature(self):
+        """Return connected DRM connector names without probing monitor DDC."""
+        connectors = []
+        drm_base = '/sys/class/drm'
+        try:
+            for entry in sorted(os.listdir(drm_base)):
+                status_path = os.path.join(drm_base, entry, 'status')
+                if not os.path.isfile(status_path):
+                    continue
+                with open(status_path) as status_file:
+                    if status_file.read().strip() == 'connected':
+                        connectors.append(entry)
+        except OSError as e:
+            logging.debug(f"Could not read DRM connector state: {e}")
+        return tuple(connectors)
+
+    def get_displays(self, force_refresh=False):
+        """Get displays while avoiding a full NVIDIA DDC scan every cycle."""
         if self.config["displays"]:
             return self.config["displays"]
 
-        # Try hybrid control first (KDE + DDC) - this detects all available monitors
+        now = time.monotonic()
+        signature = self._connected_display_signature()
+        topology_changed = bool(self._cached_displays) and signature != self._display_cache_signature
+        refresh_interval = max(
+            int(self.config.get("update_interval", 300)),
+            int(self.config.get("display_refresh_interval", 1800)),
+        )
+        cache_is_current = (
+            self._cached_displays
+            and signature == self._display_cache_signature
+            and now - self._display_cache_refreshed_at < refresh_interval
+        )
+        if not force_refresh and cache_is_current:
+            return list(self._cached_displays)
+
         if self.hybrid_control:
             try:
-                monitors = self.hybrid_control.detect_monitors()
-                if monitors:
+                monitors = self.hybrid_control.detect_monitors(
+                    include_capabilities=False,
+                    force_refresh=force_refresh or topology_changed,
+                )
+                detection_succeeded = self.hybrid_control.last_detection_succeeded
+                if monitors and detection_succeeded:
                     display_ids = list(monitors.keys())
+                    if topology_changed or display_ids != self._cached_displays:
+                        self._last_brightness.clear()
+                    self._cached_displays = display_ids
+                    self._display_cache_signature = signature
+                    self._display_cache_refreshed_at = now
                     logging.info(f"Found {len(display_ids)} displays via HybridMonitorControl")
-                    return display_ids
+                    return list(display_ids)
+                if monitors and not detection_succeeded and self._cached_displays:
+                    logging.warning("Display refresh was incomplete; retaining cached topology")
+                    return list(self._cached_displays)
+                if topology_changed and detection_succeeded:
+                    self._cached_displays = []
+                    self._display_cache_signature = signature
+                    self._display_cache_refreshed_at = now
+                    self._last_brightness.clear()
+                    return []
             except Exception as e:
                 logging.warning(f"HybridMonitorControl detection failed: {e}")
 
+        if self._cached_displays:
+            logging.warning("Display refresh failed; retaining the last known monitor topology")
+            return list(self._cached_displays)
+
         # Fall back to ddcutil
         try:
-            result = subprocess.run(['ddcutil', 'detect', '--brief'],
-                                  capture_output=True, text=True, check=True)
+            result = run_ddcutil(['detect', '--brief'])
             displays = []
             for line in result.stdout.split('\n'):
                 if 'I2C bus:' in line and '/dev/i2c-' in line:
                     i2c_path = line.split('/dev/i2c-')[1].strip()
                     displays.append(i2c_path)
-            return displays
-        except subprocess.CalledProcessError as e:
+            if displays:
+                self._cached_displays = displays
+                self._display_cache_signature = signature
+                self._display_cache_refreshed_at = now
+            return list(displays)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, TimeoutError, OSError) as e:
             logging.error(f"Failed to get displays via ddcutil: {e}")
             return []
     
@@ -567,8 +644,7 @@ class AutoBrightnessService:
 
         try:
             # Check current contrast
-            result = subprocess.run(['ddcutil', '--bus', display, 'getvcp', '12'], 
-                                  capture_output=True, text=True, check=True, timeout=5)
+            result = run_ddcutil(['--bus', display, 'getvcp', '12'], timeout=5)
             
             # Parse contrast value
             current_contrast = None
@@ -583,13 +659,12 @@ class AutoBrightnessService:
             if current_contrast is not None:
                 # If contrast is too low (less than 50%), set it to 75% for optimal visibility
                 if current_contrast < 50:
-                    subprocess.run(['ddcutil', '--bus', display, 'setvcp', '12', '75'], 
-                                 check=True, capture_output=True, timeout=5)
+                    run_ddcutil(['--bus', display, 'setvcp', '12', '75'], timeout=5)
                     logging.info(f"Adjusted display {display} contrast from {current_contrast}% to 75% for better visibility")
                 else:
                     logging.debug(f"Display {display} contrast is adequate at {current_contrast}%")
             
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, TimeoutError, OSError) as e:
             # Some monitors don't support contrast control, that's okay
             logging.debug(f"Could not check/adjust contrast for display {display}: {e}")
         except Exception as e:
@@ -627,7 +702,7 @@ class AutoBrightnessService:
         # Skip if brightness hasn't changed since last set
         if self._last_brightness.get(display) == brightness_percent:
             logging.debug(f"Display {display}: brightness unchanged at {brightness_percent}%, skipping DDC call")
-            return
+            return True
 
         if offset != 0:
             logging.info(f"Display {display}: base {int(brightness * 100)}% + offset {offset:+d}% = {brightness_percent}%")
@@ -639,7 +714,7 @@ class AutoBrightnessService:
                 if success:
                     self._last_brightness[display] = brightness_percent
                     logging.info(f"Set display {display} brightness to {brightness_percent}%")
-                    return
+                    return True
                 else:
                     logging.warning(f"HybridMonitorControl failed for {display}, trying ddcutil")
             except Exception as e:
@@ -648,15 +723,28 @@ class AutoBrightnessService:
         # Fall back to ddcutil for bus-based displays (skip kde_ displays)
         if display.startswith('kde_'):
             logging.error(f"Cannot set brightness for KDE display {display} without HybridMonitorControl")
-            return
+            self._display_cache_refreshed_at = 0.0
+            self._last_brightness.pop(display, None)
+            return False
 
         try:
-            subprocess.run(['ddcutil', '--bus', display, 'setvcp', '10', str(brightness_percent)],
-                         check=True, capture_output=True)
+            run_ddcutil(['--bus', display, 'setvcp', '10', str(brightness_percent)])
             self._last_brightness[display] = brightness_percent
             logging.info(f"Set display {display} brightness to {brightness_percent}%")
-        except subprocess.CalledProcessError as e:
+            return True
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, TimeoutError, OSError) as e:
             logging.error(f"Failed to set brightness for display {display}: {e}")
+            self._display_cache_refreshed_at = 0.0
+            self._last_brightness.pop(display, None)
+            return False
+
+    def set_brightness_targets(self, targets):
+        """Apply one scheduled generation to all monitors without interleaving."""
+        results = {}
+        with serialized_ddc_access():
+            for display, brightness in targets.items():
+                results[display] = self.set_brightness(display, brightness)
+        return results
     
     def run(self):
         logging.info("Starting DonutMonitorControl daemon (donut-monitord)")
@@ -691,7 +779,7 @@ class AutoBrightnessService:
         
         logging.info(f"Location: {lat:.2f}, {lon:.2f}")
         
-        displays = self.get_displays()
+        displays = self.get_displays(force_refresh=True)
         if not displays:
             logging.error("No displays found")
             return
@@ -763,19 +851,20 @@ class AutoBrightnessService:
                             if fullscreen_monitors:
                                 logging.debug(f"Fullscreen detected on outputs: {fullscreen_monitors}, mapping: {self._output_to_kde_map}")
 
+                            targets = {}
                             for display in displays:
                                 has_fs = self._monitor_has_fullscreen(display, fullscreen_monitors)
                                 if has_fs:
                                     logging.debug(f"Setting {display} to fullscreen brightness {fullscreen_brightness}")
-                                    self.set_brightness(display, fullscreen_brightness)
+                                    targets[display] = fullscreen_brightness
                                 else:
-                                    self.set_brightness(display, brightness)
+                                    targets[display] = brightness
+                            self.set_brightness_targets(targets)
 
                             time.sleep(fullscreen_poll_interval)
                     else:
                         # Normal mode - just set brightness and wait
-                        for display in displays:
-                            self.set_brightness(display, brightness)
+                        self.set_brightness_targets({display: brightness for display in displays})
                         logging.info(f"Updated brightness to {brightness:.2f}")
                         time.sleep(self.config["update_interval"])
                 else:
